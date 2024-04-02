@@ -93,7 +93,8 @@ to install the required Android targets.
 
 Just open up the `android` project in Android Studio and you're good to go.
 It took forever to get the tooling right, but now that it's there, it just works.
-Note that the app target is intentionally left blank.
+Note that the app target is intentionally super barebones;
+it's only there to illustrate how Gradle project dependencies work within a single workspace.
 
 #### Stuff to look at
 
