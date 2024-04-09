@@ -51,26 +51,33 @@ cargoNdk {
 }
 
 android.libraryVariants.all { variant ->
-    def generateBindings = tasks.register("generate${variant.name.capitalize()}UniFFIBindings", Exec) {
-        workingDir '../../rust'
-        commandLine 'cargo', 'run', '-p', 'uniffi-bindgen', 'generate', '--library', '../android/core/src/main/jniLibs/arm64-v8a/libfoobar.so', '--language', 'kotlin', '--out-dir', "${buildDir}/generated/source/uniffi/${variant.name}/java"
 
-        dependsOn "buildCargoNdk${variant.name.capitalize()}"
-    }
+    cargoNdk.librariesNames.each { libraryName ->
+        // Define a task name based on the variant name and the library name
+        def taskName = "generate${variant.name.capitalize()}UniFFIBindingsFor${libraryName.capitalize()}"
+        // Register the task
+        def generateBindings = tasks.register(taskName, Exec) {
+            // Path relative to this module ~ relative to this gradle file.
+            workingDir project.file('../../rust')
+            // Note: Adjust the library path based on the library name
+            // Here we assume arm64-v8a is always a target
+            commandLine 'cargo', 'run', '-p', 'uniffi-bindgen', 'generate',
+                    '--library', project.file("./src/main/jniLibs/arm64-v8a/${libraryName}"),
+                    '--language', 'kotlin',
+                    '--out-dir', project.file("${buildDir}/generated/source/uniffi/${variant.name}/java")
 
-    variant.javaCompileProvider.get().dependsOn(generateBindings)
+            dependsOn "buildCargoNdk${variant.name.capitalize()}"
+        }
 
-    // Some stuff here is broken, since Android Tests don't run after running gradle build,
-    // but do otherwise. Also CI is funky.
-    tasks.named("compile${variant.name.capitalize()}Kotlin").configure {
-        dependsOn generateBindings
-    }
-
-    tasks.named("connectedDebugAndroidTest").configure {
-        dependsOn generateBindings
+        variant.javaCompileProvider.get().dependsOn(generateBindings)
+        // Some stuff here is likely broken, since Android Tests don't run after running gradle build,
+        // but do otherwise. Also CI is funky.
+        tasks.named("compile${variant.name.capitalize()}Kotlin").configure {dependsOn generateBindings}
+        tasks.named("connectedDebugAndroidTest").configure {dependsOn generateBindings}
     }
 
     def sourceSet = variant.sourceSets.find { it.name == variant.name }
+    sourceSet.kotlin.srcDir new File(buildDir, "generated/source/uniffi/${variant.name}/java")
     sourceSet.java.srcDir new File(buildDir, "generated/source/uniffi/${variant.name}/java")
 
     // UniFFI tutorial notes that they made several attempts like this but were unsuccessful coming
