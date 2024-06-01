@@ -83,7 +83,7 @@ after you get a few things set up.
 Most importantly, you need to install [`cargo-ndk`](https://github.com/bbqsrc/cargo-ndk).
 
 ```shell
-cargo install cargo-ndk
+cargo install cargo-ndk --version 3.5.4
 ```
 
 If you've tried building the Rust library already and you have rustup,
