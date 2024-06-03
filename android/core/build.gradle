@@ -48,6 +48,7 @@ dependencies {
 cargoNdk {
     module  = "../rust"  // Directory containing Cargo.toml
     librariesNames = ["libfoobar.so"]
+    extraCargoBuildArguments = ["-p", "foobar"]
 }
 
 android.libraryVariants.all { variant ->
