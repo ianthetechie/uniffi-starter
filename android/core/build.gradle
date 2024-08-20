@@ -78,6 +78,4 @@ android.libraryVariants.all { variant ->
     // to a good solution for forcing the directory to be marked as generated (short of checking in
     // project files, I suppose).
 //    idea.module.generatedSourceDirs += file("${buildDir}/generated/source/uniffi/${variant.name}/java/uniffi")
-
-    sourceSet.java.srcDir 'src/main/java'
 }
