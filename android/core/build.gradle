@@ -52,9 +52,10 @@ cargoNdk {
 }
 
 android.libraryVariants.all { variant ->
+    def bDir = layout.buildDirectory.dir("generated/source/uniffi/${variant.name}/java").get()
     def generateBindings = tasks.register("generate${variant.name.capitalize()}UniFFIBindings", Exec) {
         workingDir '../../rust'
-        commandLine 'cargo', 'run', '-p', 'uniffi-bindgen', 'generate', '--library', '../android/core/src/main/jniLibs/arm64-v8a/libfoobar.so', '--language', 'kotlin', '--out-dir', "${buildDir}/generated/source/uniffi/${variant.name}/java"
+        commandLine 'cargo', 'run', '-p', 'uniffi-bindgen', 'generate', '--library', '../android/core/src/main/jniLibs/arm64-v8a/libfoobar.so', '--language', 'kotlin', '--out-dir', bDir
 
         dependsOn "buildCargoNdk${variant.name.capitalize()}"
     }
