@@ -74,7 +74,7 @@ jobs:
       uses: actions/download-artifact@v4
       with:
         path: common
-        name: liboobar-rs.xcframework.zip
+        name: libfoobar-rs.xcframework.zip
 
     - name: Unzip libfoobar-rs.xcframework
       run: ditto -x -k libfoobar-rs.xcframework.zip target/ios/
