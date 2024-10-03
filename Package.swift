@@ -11,7 +11,7 @@ let binaryTarget: Target = .binaryTarget(
     // When you release a public package, you will need to build a release XCFramework,
     // upload it somewhere (usually with your release), and update Package.swift.
     // This will probably be the subject of a future blog.
-    // Again, see Ferrostar for a more complex example.
+    // Again, see Ferrostar for a more complex example, including more advanced GitHub actions.
     path: "./rust/target/ios/libfoobar-rs.xcframework"
 )
 

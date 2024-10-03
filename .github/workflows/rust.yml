@@ -1,0 +1,38 @@
+name: Rust (Common)
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  rustfmt:
+    runs-on: macos-14
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.ref }}-rust-rustfmt
+      cancel-in-progress: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: rustfmt checks
+        run: cargo fmt --check
+        working-directory: rust
+
+  build:
+    runs-on: macos-14
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.ref }}-rust-build
+      cancel-in-progress: true
+    steps:
+      - uses: actions/checkout@v4
+      - name: Cargo Build
+        run: cargo build --verbose
+        working-directory: rust
+      - name: Run tests
+        run: cargo test --verbose
+        working-directory: rust
