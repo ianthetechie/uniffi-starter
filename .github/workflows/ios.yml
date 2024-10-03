@@ -42,11 +42,12 @@ jobs:
       with:
         file_pattern: 'apple/Sources/UniFFI/*'
 
+    # This is incidentally quite similar to what a release workflow will look like
     - name: 'Upload Artifact'
       uses: actions/upload-artifact@v4
       with:
         name: libfoobar-rs.xcframework.zip
-        path: common/target/ios/libfoobar-rs.xcframework.zip
+        path: rust/target/ios/libfoobar-rs.xcframework.zip
         retention-days: 5
 
   test:
