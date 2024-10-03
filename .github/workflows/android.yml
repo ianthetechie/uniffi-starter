@@ -36,9 +36,22 @@ jobs:
     - name: Install cargo-ndk
       run: cargo install cargo-ndk
 
+    - name: Touch local.properties (required for build)
+      run: touch local.properties
+      working-directory: android
+
     - name: Build with Gradle
       run: ./gradlew build
       working-directory: android
+
+    - name: 'Upload Artifact'
+      uses: actions/upload-artifact@v4
+      if: success() || failure()
+      with:
+        name: test-reports
+        path: |
+          android/**/build/reports
+        retention-days: 5
 
   check-ktfmt:
 
@@ -110,7 +123,7 @@ jobs:
       run: cargo install cargo-ndk
 
     - name: Touch local.properties (required for cargo-ndk)
-      run: echo 'stadiaApiKey=' > local.properties
+      run: touch local.properties
       working-directory: android
 
     - name: Unit test
@@ -120,14 +133,7 @@ jobs:
       run: ./gradlew test
       working-directory: android
 
-    - name: 'Upload Artifact'
-      uses: actions/upload-artifact@v4
-      if: success() || failure()
-      with:
-        name: test-reports
-        path: |
-          android/**/build/reports
-        retention-days: 5
+    
 
   connected-check:
 
@@ -159,7 +165,7 @@ jobs:
       run: cargo install cargo-ndk
 
     - name: Touch local.properties (required for build)
-      run: echo 'stadiaApiKey=' > local.properties
+      run: touch local.properties
       working-directory: android
 
     - name: Run Connected Checks

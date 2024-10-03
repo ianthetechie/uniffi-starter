@@ -54,11 +54,11 @@ jobs:
     concurrency:
       group: ${{ github.workflow }}-${{ github.ref }}-ios-test
       cancel-in-progress: true
-    needs: build-ferrostar
+    needs: build
     strategy:
       matrix:
         scheme: [
-          FerrostarCore-Package
+          Foobar
         ]
         destination: [
           # TODO: Add more destinations

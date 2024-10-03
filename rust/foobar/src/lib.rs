@@ -10,7 +10,7 @@ pub enum ComputationState {
     /// Initial state with no value computed
     Init,
     Computed {
-        result: ComputationResult
+        result: ComputationResult,
     },
 }
 
@@ -49,19 +49,24 @@ impl Calculator {
     #[uniffi::constructor]
     pub fn new() -> Self {
         Self {
-            state: ComputationState::Init
+            state: ComputationState::Init,
         }
     }
 
     pub fn last_result(&self) -> Option<ComputationResult> {
         match self.state {
             ComputationState::Init => None,
-            ComputationState::Computed { result } => Some(result)
+            ComputationState::Computed { result } => Some(result),
         }
     }
 
     /// Performs a calculation using the supplied binary operator and operands.
-    pub fn calculate(&self, op: Arc<dyn BinaryOperator>, lhs: i64, rhs: i64) -> Result<Calculator, ComputationError> {
+    pub fn calculate(
+        &self,
+        op: Arc<dyn BinaryOperator>,
+        lhs: i64,
+        rhs: i64,
+    ) -> Result<Calculator, ComputationError> {
         let start = Instant::now();
         let value = op.perform(lhs, rhs)?;
 
@@ -69,16 +74,20 @@ impl Calculator {
             state: ComputationState::Computed {
                 result: ComputationResult {
                     value,
-                    computation_time: start.elapsed()
-                }
-            }
+                    computation_time: start.elapsed(),
+                },
+            },
         })
     }
 
     /// Performs a calculation using the supplied binary operator, the last computation result, and the supplied operand.
     ///
     /// The supplied operand will be the right-hand side in the mathematical operation.
-    pub fn calculate_more(&self, op: Arc<dyn BinaryOperator>, rhs: i64) -> Result<Calculator, ComputationError> {
+    pub fn calculate_more(
+        &self,
+        op: Arc<dyn BinaryOperator>,
+        rhs: i64,
+    ) -> Result<Calculator, ComputationError> {
         let ComputationState::Computed { result } = &self.state else {
             return Err(ComputationError::IllegalComputationWithInitState);
         };
@@ -90,9 +99,9 @@ impl Calculator {
             state: ComputationState::Computed {
                 result: ComputationResult {
                     value,
-                    computation_time: start.elapsed()
-                }
-            }
+                    computation_time: start.elapsed(),
+                },
+            },
         })
     }
 }
@@ -162,11 +171,23 @@ mod tests {
         let calc = Calculator::new();
         let op = Arc::new(SafeAddition {});
 
-        let calc = calc.calculate(op.clone(), 2, 2).expect("Something went wrong");
+        let calc = calc
+            .calculate(op.clone(), 2, 2)
+            .expect("Something went wrong");
         assert_eq!(calc.last_result().unwrap().value, 4);
 
-        assert_eq!(calc.calculate_more(op.clone(), i64::MAX), Err(ComputationError::Overflow));
-        assert_eq!(calc.calculate_more(op, 8).unwrap().last_result().unwrap().value, 12);
+        assert_eq!(
+            calc.calculate_more(op.clone(), i64::MAX),
+            Err(ComputationError::Overflow)
+        );
+        assert_eq!(
+            calc.calculate_more(op, 8)
+                .unwrap()
+                .last_result()
+                .unwrap()
+                .value,
+            12
+        );
     }
 
     #[test]
@@ -174,11 +195,19 @@ mod tests {
         let calc = Calculator::new();
         let op = Arc::new(SafeDivision {});
 
-        let calc = calc.calculate(op.clone(), 2, 2).expect("Something went wrong");
+        let calc = calc
+            .calculate(op.clone(), 2, 2)
+            .expect("Something went wrong");
         assert_eq!(calc.last_result().unwrap().value, 1);
 
-        assert_eq!(calc.calculate_more(op.clone(), 0), Err(ComputationError::DivisionByZero));
-        assert_eq!(calc.calculate(op, i64::MIN, -1), Err(ComputationError::Overflow));
+        assert_eq!(
+            calc.calculate_more(op.clone(), 0),
+            Err(ComputationError::DivisionByZero)
+        );
+        assert_eq!(
+            calc.calculate(op, i64::MIN, -1),
+            Err(ComputationError::Overflow)
+        );
     }
 
     #[test]
@@ -186,6 +215,9 @@ mod tests {
         let calc = Calculator::new();
         let op = Arc::new(SafeAddition {});
 
-        assert_eq!(calc.calculate_more(op, 1), Err(ComputationError::IllegalComputationWithInitState));
+        assert_eq!(
+            calc.calculate_more(op, 1),
+            Err(ComputationError::IllegalComputationWithInitState)
+        );
     }
 }

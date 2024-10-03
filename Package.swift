@@ -21,7 +21,8 @@ let package = Package(
         // Products define the executables and libraries a package produces, making them visible to other packages.
         .library(
             name: "Foobar",
-            targets: ["Foobar"]),
+            targets: ["Foobar"]
+        ),
     ],
     targets: [
         binaryTarget,
@@ -38,6 +39,7 @@ let package = Package(
         .testTarget(
             name: "FoobarTests",
             dependencies: ["Foobar"],
-            path: "apple/Tests/FoobarTests"),
+            path: "apple/Tests/FoobarTests"
+        ),
     ]
 )

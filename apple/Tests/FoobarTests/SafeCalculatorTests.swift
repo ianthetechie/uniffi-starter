@@ -1,5 +1,5 @@
-import XCTest
 @testable import Foobar
+import XCTest
 
 final class MyLibraryTests: XCTestCase {
     let calculator = SafeCalculator()
