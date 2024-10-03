@@ -55,19 +55,20 @@ build_xcframework() {
 
   if $release; then
     echo "Building xcframework archive"
-    zip -r target/ios/lib$1-rs.xcframework.zip target/ios/lib$1-rs.xcframework
+    ditto -c -k --sequesterRsrc --keepParent target/ios/lib$1-rs.xcframework target/ios/lib$1-rs.xcframework.zip
     checksum=$(swift package compute-checksum target/ios/lib$1-rs.xcframework.zip)
-    version=$(cargo metadata --format-version 1 | jq -r '.packages[] | select(.name=="foobar") .version')
+    version=$(cargo metadata --format-version 1 | jq -r --arg pkg_name "$1" '.packages[] | select(.name==$pkg_name) .version')
     sed -i "" -E "s/(let releaseTag = \")[^\"]+(\")/\1$version\2/g" ../Package.swift
     sed -i "" -E "s/(let releaseChecksum = \")[^\"]+(\")/\1$checksum\2/g" ../Package.swift
   fi
 }
 
-cargo build --lib --release --target x86_64-apple-ios
-cargo build --lib --release --target aarch64-apple-ios-sim
-cargo build --lib --release --target aarch64-apple-ios
-
 basename=foobar
+
+cargo build -p $basename --lib --release --target x86_64-apple-ios
+cargo build -p $basename --lib --release --target aarch64-apple-ios-sim
+cargo build -p $basename --lib --release --target aarch64-apple-ios
+
 generate_ffi $basename
 create_fat_simulator_lib $basename
 build_xcframework $basename
