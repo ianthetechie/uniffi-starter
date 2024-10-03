@@ -73,7 +73,7 @@ jobs:
     - name: Download libfoobar-rs.xcframework
       uses: actions/download-artifact@v4
       with:
-        path: common
+        path: rust
         name: libfoobar-rs.xcframework.zip
 
     - name: Unzip libfoobar-rs.xcframework
