@@ -7,7 +7,7 @@ edition = "2021"
 
 [dependencies]
 uniffi.workspace = true
-thiserror = "1.0.64"
+thiserror = "1.0.66"
 
 [build-dependencies]
 uniffi = { workspace = true, features = ["build"] }
