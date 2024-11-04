@@ -10,7 +10,7 @@ androidx-activity-compose = "1.9.2"
 compose = "2024.10.01"
 junit = "4.13.2"
 junitVersion = "1.2.1"
-junitCompose = "1.7.3"
+junitCompose = "1.7.5"
 espressoCore = "3.6.1"
 material = "1.12.0"
 
