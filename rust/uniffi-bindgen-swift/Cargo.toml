@@ -1,14 +1,13 @@
 [package]
-name = "uniffi-bindgen"
+name = "uniffi-bindgen-swift"
 version = "0.1.0"
 edition = "2021"
 publish = false
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 uniffi = { workspace = true, features = ["cli"] }
 
 [[bin]]
-name = "uniffi-bindgen"
+name = "uniffi-bindgen-swift"
 path = "src/main.rs"
+ 

@@ -3,6 +3,7 @@
 members = [
     "foobar",
     "uniffi-bindgen",
+    "uniffi-bindgen-swift",
 ]
 resolver = "2"
 

@@ -8,10 +8,10 @@ import Foundation
 // might be in a separate module, or it might be compiled inline into
 // this module. This is a bit of light hackery to work with both.
 #if canImport(foobarFFI)
-    import foobarFFI
+import foobarFFI
 #endif
 
-private extension RustBuffer {
+fileprivate extension RustBuffer {
     // Allocate a new buffer, copying the contents of a `UInt8` array.
     init(bytes: [UInt8]) {
         let rbuf = bytes.withUnsafeBufferPointer { ptr in
@@ -21,7 +21,7 @@ private extension RustBuffer {
     }
 
     static func empty() -> RustBuffer {
-        RustBuffer(capacity: 0, len: 0, data: nil)
+        RustBuffer(capacity: 0, len:0, data: nil)
     }
 
     static func from(_ ptr: UnsafeBufferPointer<UInt8>) -> RustBuffer {
@@ -35,7 +35,7 @@ private extension RustBuffer {
     }
 }
 
-private extension ForeignBytes {
+fileprivate extension ForeignBytes {
     init(bufferPointer: UnsafeBufferPointer<UInt8>) {
         self.init(len: Int32(bufferPointer.count), data: bufferPointer.baseAddress)
     }
@@ -48,7 +48,7 @@ private extension ForeignBytes {
 // Helper classes/extensions that don't change.
 // Someday, this will be in a library of its own.
 
-private extension Data {
+fileprivate extension Data {
     init(rustBuffer: RustBuffer) {
         self.init(
             bytesNoCopy: rustBuffer.data!,
@@ -72,15 +72,15 @@ private extension Data {
 //
 // Instead, the read() method and these helper functions input a tuple of data
 
-private func createReader(data: Data) -> (data: Data, offset: Data.Index) {
+fileprivate func createReader(data: Data) -> (data: Data, offset: Data.Index) {
     (data: data, offset: 0)
 }
 
 // Reads an integer at the current offset, in big-endian order, and advances
 // the offset on success. Throws if reading the integer would move the
 // offset past the end of the buffer.
-private func readInt<T: FixedWidthInteger>(_ reader: inout (data: Data, offset: Data.Index)) throws -> T {
-    let range = reader.offset ..< reader.offset + MemoryLayout<T>.size
+fileprivate func readInt<T: FixedWidthInteger>(_ reader: inout (data: Data, offset: Data.Index)) throws -> T {
+    let range = reader.offset..<reader.offset + MemoryLayout<T>.size
     guard reader.data.count >= range.upperBound else {
         throw UniffiInternalError.bufferOverflow
     }
@@ -90,38 +90,38 @@ private func readInt<T: FixedWidthInteger>(_ reader: inout (data: Data, offset: 
         return value as! T
     }
     var value: T = 0
-    let _ = withUnsafeMutableBytes(of: &value) { reader.data.copyBytes(to: $0, from: range) }
+    let _ = withUnsafeMutableBytes(of: &value, { reader.data.copyBytes(to: $0, from: range)})
     reader.offset = range.upperBound
     return value.bigEndian
 }
 
 // Reads an arbitrary number of bytes, to be used to read
 // raw bytes, this is useful when lifting strings
-private func readBytes(_ reader: inout (data: Data, offset: Data.Index), count: Int) throws -> [UInt8] {
-    let range = reader.offset ..< (reader.offset + count)
+fileprivate func readBytes(_ reader: inout (data: Data, offset: Data.Index), count: Int) throws -> Array<UInt8> {
+    let range = reader.offset..<(reader.offset+count)
     guard reader.data.count >= range.upperBound else {
         throw UniffiInternalError.bufferOverflow
     }
     var value = [UInt8](repeating: 0, count: count)
-    value.withUnsafeMutableBufferPointer { buffer in
+    value.withUnsafeMutableBufferPointer({ buffer in
         reader.data.copyBytes(to: buffer, from: range)
-    }
+    })
     reader.offset = range.upperBound
     return value
 }
 
 // Reads a float at the current offset.
-private func readFloat(_ reader: inout (data: Data, offset: Data.Index)) throws -> Float {
-    return try Float(bitPattern: readInt(&reader))
+fileprivate func readFloat(_ reader: inout (data: Data, offset: Data.Index)) throws -> Float {
+    return Float(bitPattern: try readInt(&reader))
 }
 
 // Reads a float at the current offset.
-private func readDouble(_ reader: inout (data: Data, offset: Data.Index)) throws -> Double {
-    return try Double(bitPattern: readInt(&reader))
+fileprivate func readDouble(_ reader: inout (data: Data, offset: Data.Index)) throws -> Double {
+    return Double(bitPattern: try readInt(&reader))
 }
 
 // Indicates if the offset has reached the end of the buffer.
-private func hasRemaining(_ reader: (data: Data, offset: Data.Index)) -> Bool {
+fileprivate func hasRemaining(_ reader: (data: Data, offset: Data.Index)) -> Bool {
     return reader.offset < reader.data.count
 }
 
@@ -129,11 +129,11 @@ private func hasRemaining(_ reader: (data: Data, offset: Data.Index)) -> Bool {
 // struct, but we use standalone functions instead in order to make external
 // types work.  See the above discussion on Readers for details.
 
-private func createWriter() -> [UInt8] {
+fileprivate func createWriter() -> [UInt8] {
     return []
 }
 
-private func writeBytes<S>(_ writer: inout [UInt8], _ byteArr: S) where S: Sequence, S.Element == UInt8 {
+fileprivate func writeBytes<S>(_ writer: inout [UInt8], _ byteArr: S) where S: Sequence, S.Element == UInt8 {
     writer.append(contentsOf: byteArr)
 }
 
@@ -141,22 +141,22 @@ private func writeBytes<S>(_ writer: inout [UInt8], _ byteArr: S) where S: Seque
 //
 // Warning: make sure what you are trying to write
 // is in the correct type!
-private func writeInt<T: FixedWidthInteger>(_ writer: inout [UInt8], _ value: T) {
+fileprivate func writeInt<T: FixedWidthInteger>(_ writer: inout [UInt8], _ value: T) {
     var value = value.bigEndian
     withUnsafeBytes(of: &value) { writer.append(contentsOf: $0) }
 }
 
-private func writeFloat(_ writer: inout [UInt8], _ value: Float) {
+fileprivate func writeFloat(_ writer: inout [UInt8], _ value: Float) {
     writeInt(&writer, value.bitPattern)
 }
 
-private func writeDouble(_ writer: inout [UInt8], _ value: Double) {
+fileprivate func writeDouble(_ writer: inout [UInt8], _ value: Double) {
     writeInt(&writer, value.bitPattern)
 }
 
 // Protocol for types that transfer other types across the FFI. This is
 // analogous to the Rust trait of the same name.
-private protocol FfiConverter {
+fileprivate protocol FfiConverter {
     associatedtype FfiType
     associatedtype SwiftType
 
@@ -167,13 +167,19 @@ private protocol FfiConverter {
 }
 
 // Types conforming to `Primitive` pass themselves directly over the FFI.
-private protocol FfiConverterPrimitive: FfiConverter where FfiType == SwiftType {}
+fileprivate protocol FfiConverterPrimitive: FfiConverter where FfiType == SwiftType { }
 
 extension FfiConverterPrimitive {
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
     public static func lift(_ value: FfiType) throws -> SwiftType {
         return value
     }
 
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
     public static func lower(_ value: SwiftType) -> FfiType {
         return value
     }
@@ -181,9 +187,12 @@ extension FfiConverterPrimitive {
 
 // Types conforming to `FfiConverterRustBuffer` lift and lower into a `RustBuffer`.
 // Used for complex types where it's hard to write a custom lift/lower.
-private protocol FfiConverterRustBuffer: FfiConverter where FfiType == RustBuffer {}
+fileprivate protocol FfiConverterRustBuffer: FfiConverter where FfiType == RustBuffer {}
 
 extension FfiConverterRustBuffer {
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
     public static func lift(_ buf: RustBuffer) throws -> SwiftType {
         var reader = createReader(data: Data(rustBuffer: buf))
         let value = try read(from: &reader)
@@ -194,16 +203,18 @@ extension FfiConverterRustBuffer {
         return value
     }
 
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
     public static func lower(_ value: SwiftType) -> RustBuffer {
-        var writer = createWriter()
-        write(value, into: &writer)
-        return RustBuffer(bytes: writer)
+          var writer = createWriter()
+          write(value, into: &writer)
+          return RustBuffer(bytes: writer)
     }
 }
-
 // An error type for FFI errors. These errors occur at the UniFFI level, not
 // the library level.
-private enum UniffiInternalError: LocalizedError {
+fileprivate enum UniffiInternalError: LocalizedError {
     case bufferOverflow
     case incompleteData
     case unexpectedOptionalTag
@@ -229,24 +240,24 @@ private enum UniffiInternalError: LocalizedError {
     }
 }
 
-private extension NSLock {
+fileprivate extension NSLock {
     func withLock<T>(f: () throws -> T) rethrows -> T {
-        lock()
+        self.lock()
         defer { self.unlock() }
         return try f()
     }
 }
 
-private let CALL_SUCCESS: Int8 = 0
-private let CALL_ERROR: Int8 = 1
-private let CALL_UNEXPECTED_ERROR: Int8 = 2
-private let CALL_CANCELLED: Int8 = 3
+fileprivate let CALL_SUCCESS: Int8 = 0
+fileprivate let CALL_ERROR: Int8 = 1
+fileprivate let CALL_UNEXPECTED_ERROR: Int8 = 2
+fileprivate let CALL_CANCELLED: Int8 = 3
 
-private extension RustCallStatus {
+fileprivate extension RustCallStatus {
     init() {
         self.init(
             code: CALL_SUCCESS,
-            errorBuf: RustBuffer(
+            errorBuf: RustBuffer.init(
                 capacity: 0,
                 len: 0,
                 data: nil
@@ -262,8 +273,7 @@ private func rustCall<T>(_ callback: (UnsafeMutablePointer<RustCallStatus>) -> T
 
 private func rustCallWithError<T, E: Swift.Error>(
     _ errorHandler: @escaping (RustBuffer) throws -> E,
-    _ callback: (UnsafeMutablePointer<RustCallStatus>) -> T
-) throws -> T {
+    _ callback: (UnsafeMutablePointer<RustCallStatus>) -> T) throws -> T {
     try makeRustCall(callback, errorHandler: errorHandler)
 }
 
@@ -272,7 +282,7 @@ private func makeRustCall<T, E: Swift.Error>(
     errorHandler: ((RustBuffer) throws -> E)?
 ) throws -> T {
     uniffiEnsureInitialized()
-    var callStatus = RustCallStatus()
+    var callStatus = RustCallStatus.init()
     let returnedVal = callback(&callStatus)
     try uniffiCheckCallStatus(callStatus: callStatus, errorHandler: errorHandler)
     return returnedVal
@@ -283,44 +293,44 @@ private func uniffiCheckCallStatus<E: Swift.Error>(
     errorHandler: ((RustBuffer) throws -> E)?
 ) throws {
     switch callStatus.code {
-    case CALL_SUCCESS:
-        return
+        case CALL_SUCCESS:
+            return
 
-    case CALL_ERROR:
-        if let errorHandler = errorHandler {
-            throw try errorHandler(callStatus.errorBuf)
-        } else {
-            callStatus.errorBuf.deallocate()
-            throw UniffiInternalError.unexpectedRustCallError
-        }
+        case CALL_ERROR:
+            if let errorHandler = errorHandler {
+                throw try errorHandler(callStatus.errorBuf)
+            } else {
+                callStatus.errorBuf.deallocate()
+                throw UniffiInternalError.unexpectedRustCallError
+            }
 
-    case CALL_UNEXPECTED_ERROR:
-        // When the rust code sees a panic, it tries to construct a RustBuffer
-        // with the message.  But if that code panics, then it just sends back
-        // an empty buffer.
-        if callStatus.errorBuf.len > 0 {
-            throw try UniffiInternalError.rustPanic(FfiConverterString.lift(callStatus.errorBuf))
-        } else {
-            callStatus.errorBuf.deallocate()
-            throw UniffiInternalError.rustPanic("Rust panic")
-        }
+        case CALL_UNEXPECTED_ERROR:
+            // When the rust code sees a panic, it tries to construct a RustBuffer
+            // with the message.  But if that code panics, then it just sends back
+            // an empty buffer.
+            if callStatus.errorBuf.len > 0 {
+                throw UniffiInternalError.rustPanic(try FfiConverterString.lift(callStatus.errorBuf))
+            } else {
+                callStatus.errorBuf.deallocate()
+                throw UniffiInternalError.rustPanic("Rust panic")
+            }
 
-    case CALL_CANCELLED:
-        fatalError("Cancellation not supported yet")
+        case CALL_CANCELLED:
+            fatalError("Cancellation not supported yet")
 
-    default:
-        throw UniffiInternalError.unexpectedRustCallStatusCode
+        default:
+            throw UniffiInternalError.unexpectedRustCallStatusCode
     }
 }
 
 private func uniffiTraitInterfaceCall<T>(
     callStatus: UnsafeMutablePointer<RustCallStatus>,
     makeCall: () throws -> T,
-    writeReturn: (T) -> Void
+    writeReturn: (T) -> ()
 ) {
     do {
         try writeReturn(makeCall())
-    } catch {
+    } catch let error {
         callStatus.pointee.code = CALL_UNEXPECTED_ERROR
         callStatus.pointee.errorBuf = FfiConverterString.lower(String(describing: error))
     }
@@ -329,7 +339,7 @@ private func uniffiTraitInterfaceCall<T>(
 private func uniffiTraitInterfaceCallWithError<T, E>(
     callStatus: UnsafeMutablePointer<RustCallStatus>,
     makeCall: () throws -> T,
-    writeReturn: (T) -> Void,
+    writeReturn: (T) -> (),
     lowerError: (E) -> RustBuffer
 ) {
     do {
@@ -342,8 +352,7 @@ private func uniffiTraitInterfaceCallWithError<T, E>(
         callStatus.pointee.errorBuf = FfiConverterString.lower(String(describing: error))
     }
 }
-
-private class UniffiHandleMap<T> {
+fileprivate class UniffiHandleMap<T> {
     private var map: [UInt64: T] = [:]
     private let lock = NSLock()
     private var currentHandle: UInt64 = 1
@@ -357,7 +366,7 @@ private class UniffiHandleMap<T> {
         }
     }
 
-    func get(handle: UInt64) throws -> T {
+     func get(handle: UInt64) throws -> T {
         try lock.withLock {
             guard let obj = map[handle] else {
                 throw UniffiInternalError.unexpectedStaleHandle
@@ -377,13 +386,20 @@ private class UniffiHandleMap<T> {
     }
 
     var count: Int {
-        map.count
+        get {
+            map.count
+        }
     }
 }
 
+
 // Public interface members begin here.
 
-private struct FfiConverterInt64: FfiConverterPrimitive {
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterInt64: FfiConverterPrimitive {
     typealias FfiType = Int64
     typealias SwiftType = Int64
 
@@ -396,7 +412,10 @@ private struct FfiConverterInt64: FfiConverterPrimitive {
     }
 }
 
-private struct FfiConverterString: FfiConverter {
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterString: FfiConverter {
     typealias SwiftType = String
     typealias FfiType = RustBuffer
 
@@ -424,7 +443,7 @@ private struct FfiConverterString: FfiConverter {
 
     public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> String {
         let len: Int32 = try readInt(&buf)
-        return try String(bytes: readBytes(&buf, count: Int(len)), encoding: String.Encoding.utf8)!
+        return String(bytes: try readBytes(&buf, count: Int(len)), encoding: String.Encoding.utf8)!
     }
 
     public static func write(_ value: String, into buf: inout [UInt8]) {
@@ -434,7 +453,10 @@ private struct FfiConverterString: FfiConverter {
     }
 }
 
-private struct FfiConverterDuration: FfiConverterRustBuffer {
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterDuration: FfiConverterRustBuffer {
     typealias SwiftType = TimeInterval
 
     public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> TimeInterval {
@@ -459,22 +481,29 @@ private struct FfiConverterDuration: FfiConverterRustBuffer {
     }
 }
 
+
+
+
 /**
  * A binary operator that performs some mathematical operation with two numbers.
  */
-public protocol BinaryOperator: AnyObject {
-    func perform(lhs: Int64, rhs: Int64) throws -> Int64
+public protocol BinaryOperator : AnyObject {
+    
+    func perform(lhs: Int64, rhs: Int64) throws  -> Int64
+    
 }
 
 /**
  * A binary operator that performs some mathematical operation with two numbers.
  */
 open class BinaryOperatorImpl:
-    BinaryOperator
-{
+    BinaryOperator {
     fileprivate let pointer: UnsafeMutableRawPointer!
 
     /// Used to instantiate a [FFIObject] without an actual pointer, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
     public struct NoPointer {
         public init() {}
     }
@@ -482,23 +511,28 @@ open class BinaryOperatorImpl:
     // TODO: We'd like this to be `private` but for Swifty reasons,
     // we can't implement `FfiConverter` without making this `required` and we can't
     // make it `required` without making it `public`.
-    public required init(unsafeFromRawPointer pointer: UnsafeMutableRawPointer) {
+    required public init(unsafeFromRawPointer pointer: UnsafeMutableRawPointer) {
         self.pointer = pointer
     }
 
-    /// This constructor can be used to instantiate a fake object.
-    /// - Parameter noPointer: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
-    ///
-    /// - Warning:
-    ///     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing [Pointer] the FFI lower functions will crash.
-    public init(noPointer _: NoPointer) {
-        pointer = nil
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noPointer: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing [Pointer] the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noPointer: NoPointer) {
+        self.pointer = nil
     }
 
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
     public func uniffiClonePointer() -> UnsafeMutableRawPointer {
         return try! rustCall { uniffi_foobar_fn_clone_binaryoperator(self.pointer, $0) }
     }
-
     // No primary constructor declared for this class.
 
     deinit {
@@ -509,15 +543,20 @@ open class BinaryOperatorImpl:
         try! rustCall { uniffi_foobar_fn_free_binaryoperator(pointer, $0) }
     }
 
-    open func perform(lhs: Int64, rhs: Int64) throws -> Int64 {
-        return try FfiConverterInt64.lift(rustCallWithError(FfiConverterTypeComputationError.lift) {
-            uniffi_foobar_fn_method_binaryoperator_perform(self.uniffiClonePointer(),
-                                                           FfiConverterInt64.lower(lhs),
-                                                           FfiConverterInt64.lower(rhs), $0)
-        })
-    }
-}
+    
 
+    
+open func perform(lhs: Int64, rhs: Int64)throws  -> Int64 {
+    return try  FfiConverterInt64.lift(try rustCallWithError(FfiConverterTypeComputationError.lift) {
+    uniffi_foobar_fn_method_binaryoperator_perform(self.uniffiClonePointer(),
+        FfiConverterInt64.lower(lhs),
+        FfiConverterInt64.lower(rhs),$0
+    )
+})
+}
+    
+
+}
 // Magic number for the Rust proxy to call using the same mechanism as every other method,
 // to free the callback once it's dropped by Rust.
 private let IDX_CALLBACK_FREE: Int32 = 0
@@ -527,10 +566,11 @@ private let UNIFFI_CALLBACK_ERROR: Int32 = 1
 private let UNIFFI_CALLBACK_UNEXPECTED_ERROR: Int32 = 2
 
 // Put the implementation in a struct so we don't pollute the top-level namespace
-private enum UniffiCallbackInterfaceBinaryOperator {
+fileprivate struct UniffiCallbackInterfaceBinaryOperator {
+
     // Create the VTable using a series of closures.
     // Swift automatically converts these into C callback functions.
-    static var vtable: UniffiVTableCallbackInterfaceBinaryOperator = .init(
+    static var vtable: UniffiVTableCallbackInterfaceBinaryOperator = UniffiVTableCallbackInterfaceBinaryOperator(
         perform: { (
             uniffiHandle: UInt64,
             lhs: Int64,
@@ -544,11 +584,12 @@ private enum UniffiCallbackInterfaceBinaryOperator {
                     throw UniffiInternalError.unexpectedStaleHandle
                 }
                 return try uniffiObj.perform(
-                    lhs: FfiConverterInt64.lift(lhs),
-                    rhs: FfiConverterInt64.lift(rhs)
+                     lhs: try FfiConverterInt64.lift(lhs),
+                     rhs: try FfiConverterInt64.lift(rhs)
                 )
             }
 
+            
             let writeReturn = { uniffiOutReturn.pointee = FfiConverterInt64.lower($0) }
             uniffiTraitInterfaceCallWithError(
                 callStatus: uniffiCallStatus,
@@ -557,7 +598,7 @@ private enum UniffiCallbackInterfaceBinaryOperator {
                 lowerError: FfiConverterTypeComputationError.lower
             )
         },
-        uniffiFree: { (uniffiHandle: UInt64) in
+        uniffiFree: { (uniffiHandle: UInt64) -> () in
             let result = try? FfiConverterTypeBinaryOperator.handleMap.remove(handle: uniffiHandle)
             if result == nil {
                 print("Uniffi callback interface BinaryOperator: handle missing in uniffiFree")
@@ -570,6 +611,9 @@ private func uniffiCallbackInitBinaryOperator() {
     uniffi_foobar_fn_init_callback_vtable_binaryoperator(&UniffiCallbackInterfaceBinaryOperator.vtable)
 }
 
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 public struct FfiConverterTypeBinaryOperator: FfiConverter {
     fileprivate static var handleMap = UniffiHandleMap<BinaryOperator>()
 
@@ -592,7 +636,7 @@ public struct FfiConverterTypeBinaryOperator: FfiConverter {
         // The Rust code won't compile if a pointer won't fit in a UInt64.
         // We have to go via `UInt` because that's the thing that's the size of a pointer.
         let ptr = UnsafeMutableRawPointer(bitPattern: UInt(truncatingIfNeeded: v))
-        if ptr == nil {
+        if (ptr == nil) {
             throw UniffiInternalError.unexpectedNullPointer
         }
         return try lift(ptr!)
@@ -605,33 +649,47 @@ public struct FfiConverterTypeBinaryOperator: FfiConverter {
     }
 }
 
+
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 public func FfiConverterTypeBinaryOperator_lift(_ pointer: UnsafeMutableRawPointer) throws -> BinaryOperator {
     return try FfiConverterTypeBinaryOperator.lift(pointer)
 }
 
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 public func FfiConverterTypeBinaryOperator_lower(_ value: BinaryOperator) -> UnsafeMutableRawPointer {
     return FfiConverterTypeBinaryOperator.lower(value)
 }
+
+
+
 
 /**
  * A somewhat silly demonstration of functional core/imperative shell in the form of a calculator with arbitrary operators.
  *
  * Operations return a new calculator with updated internal state reflecting the computation.
  */
-public protocol CalculatorProtocol: AnyObject {
+public protocol CalculatorProtocol : AnyObject {
+    
     /**
      * Performs a calculation using the supplied binary operator and operands.
      */
-    func calculate(op: BinaryOperator, lhs: Int64, rhs: Int64) throws -> Calculator
-
+    func calculate(op: BinaryOperator, lhs: Int64, rhs: Int64) throws  -> Calculator
+    
     /**
      * Performs a calculation using the supplied binary operator, the last computation result, and the supplied operand.
      *
      * The supplied operand will be the right-hand side in the mathematical operation.
      */
-    func calculateMore(op: BinaryOperator, rhs: Int64) throws -> Calculator
-
-    func lastResult() -> ComputationResult?
+    func calculateMore(op: BinaryOperator, rhs: Int64) throws  -> Calculator
+    
+    func lastResult()  -> ComputationResult?
+    
 }
 
 /**
@@ -640,11 +698,13 @@ public protocol CalculatorProtocol: AnyObject {
  * Operations return a new calculator with updated internal state reflecting the computation.
  */
 open class Calculator:
-    CalculatorProtocol
-{
+    CalculatorProtocol {
     fileprivate let pointer: UnsafeMutableRawPointer!
 
     /// Used to instantiate a [FFIObject] without an actual pointer, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
     public struct NoPointer {
         public init() {}
     }
@@ -652,31 +712,36 @@ open class Calculator:
     // TODO: We'd like this to be `private` but for Swifty reasons,
     // we can't implement `FfiConverter` without making this `required` and we can't
     // make it `required` without making it `public`.
-    public required init(unsafeFromRawPointer pointer: UnsafeMutableRawPointer) {
+    required public init(unsafeFromRawPointer pointer: UnsafeMutableRawPointer) {
         self.pointer = pointer
     }
 
-    /// This constructor can be used to instantiate a fake object.
-    /// - Parameter noPointer: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
-    ///
-    /// - Warning:
-    ///     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing [Pointer] the FFI lower functions will crash.
-    public init(noPointer _: NoPointer) {
-        pointer = nil
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noPointer: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing [Pointer] the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noPointer: NoPointer) {
+        self.pointer = nil
     }
 
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
     public func uniffiClonePointer() -> UnsafeMutableRawPointer {
         return try! rustCall { uniffi_foobar_fn_clone_calculator(self.pointer, $0) }
     }
-
-    public convenience init() {
-        let pointer =
-            try! rustCall {
-                uniffi_foobar_fn_constructor_calculator_new($0
-                )
-            }
-        self.init(unsafeFromRawPointer: pointer)
-    }
+public convenience init() {
+    let pointer =
+        try! rustCall() {
+    uniffi_foobar_fn_constructor_calculator_new($0
+    )
+}
+    self.init(unsafeFromRawPointer: pointer)
+}
 
     deinit {
         guard let pointer = pointer else {
@@ -686,39 +751,51 @@ open class Calculator:
         try! rustCall { uniffi_foobar_fn_free_calculator(pointer, $0) }
     }
 
+    
+
+    
     /**
      * Performs a calculation using the supplied binary operator and operands.
      */
-    open func calculate(op: BinaryOperator, lhs: Int64, rhs: Int64) throws -> Calculator {
-        return try FfiConverterTypeCalculator.lift(rustCallWithError(FfiConverterTypeComputationError.lift) {
-            uniffi_foobar_fn_method_calculator_calculate(self.uniffiClonePointer(),
-                                                         FfiConverterTypeBinaryOperator.lower(op),
-                                                         FfiConverterInt64.lower(lhs),
-                                                         FfiConverterInt64.lower(rhs), $0)
-        })
-    }
-
+open func calculate(op: BinaryOperator, lhs: Int64, rhs: Int64)throws  -> Calculator {
+    return try  FfiConverterTypeCalculator.lift(try rustCallWithError(FfiConverterTypeComputationError.lift) {
+    uniffi_foobar_fn_method_calculator_calculate(self.uniffiClonePointer(),
+        FfiConverterTypeBinaryOperator.lower(op),
+        FfiConverterInt64.lower(lhs),
+        FfiConverterInt64.lower(rhs),$0
+    )
+})
+}
+    
     /**
      * Performs a calculation using the supplied binary operator, the last computation result, and the supplied operand.
      *
      * The supplied operand will be the right-hand side in the mathematical operation.
      */
-    open func calculateMore(op: BinaryOperator, rhs: Int64) throws -> Calculator {
-        return try FfiConverterTypeCalculator.lift(rustCallWithError(FfiConverterTypeComputationError.lift) {
-            uniffi_foobar_fn_method_calculator_calculate_more(self.uniffiClonePointer(),
-                                                              FfiConverterTypeBinaryOperator.lower(op),
-                                                              FfiConverterInt64.lower(rhs), $0)
-        })
-    }
+open func calculateMore(op: BinaryOperator, rhs: Int64)throws  -> Calculator {
+    return try  FfiConverterTypeCalculator.lift(try rustCallWithError(FfiConverterTypeComputationError.lift) {
+    uniffi_foobar_fn_method_calculator_calculate_more(self.uniffiClonePointer(),
+        FfiConverterTypeBinaryOperator.lower(op),
+        FfiConverterInt64.lower(rhs),$0
+    )
+})
+}
+    
+open func lastResult() -> ComputationResult? {
+    return try!  FfiConverterOptionTypeComputationResult.lift(try! rustCall() {
+    uniffi_foobar_fn_method_calculator_last_result(self.uniffiClonePointer(),$0
+    )
+})
+}
+    
 
-    open func lastResult() -> ComputationResult? {
-        return try! FfiConverterOptionTypeComputationResult.lift(try! rustCall {
-            uniffi_foobar_fn_method_calculator_last_result(self.uniffiClonePointer(), $0)
-        })
-    }
 }
 
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 public struct FfiConverterTypeCalculator: FfiConverter {
+
     typealias FfiType = UnsafeMutableRawPointer
     typealias SwiftType = Calculator
 
@@ -735,7 +812,7 @@ public struct FfiConverterTypeCalculator: FfiConverter {
         // The Rust code won't compile if a pointer won't fit in a UInt64.
         // We have to go via `UInt` because that's the thing that's the size of a pointer.
         let ptr = UnsafeMutableRawPointer(bitPattern: UInt(truncatingIfNeeded: v))
-        if ptr == nil {
+        if (ptr == nil) {
             throw UniffiInternalError.unexpectedNullPointer
         }
         return try lift(ptr!)
@@ -748,24 +825,40 @@ public struct FfiConverterTypeCalculator: FfiConverter {
     }
 }
 
+
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 public func FfiConverterTypeCalculator_lift(_ pointer: UnsafeMutableRawPointer) throws -> Calculator {
     return try FfiConverterTypeCalculator.lift(pointer)
 }
 
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 public func FfiConverterTypeCalculator_lower(_ value: Calculator) -> UnsafeMutableRawPointer {
     return FfiConverterTypeCalculator.lower(value)
 }
 
-public protocol SafeAdditionProtocol: AnyObject {
-    func perform(lhs: Int64, rhs: Int64) throws -> Int64
+
+
+
+public protocol SafeAdditionProtocol : AnyObject {
+    
+    func perform(lhs: Int64, rhs: Int64) throws  -> Int64
+    
 }
 
 open class SafeAddition:
-    SafeAdditionProtocol
-{
+    SafeAdditionProtocol {
     fileprivate let pointer: UnsafeMutableRawPointer!
 
     /// Used to instantiate a [FFIObject] without an actual pointer, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
     public struct NoPointer {
         public init() {}
     }
@@ -773,31 +866,36 @@ open class SafeAddition:
     // TODO: We'd like this to be `private` but for Swifty reasons,
     // we can't implement `FfiConverter` without making this `required` and we can't
     // make it `required` without making it `public`.
-    public required init(unsafeFromRawPointer pointer: UnsafeMutableRawPointer) {
+    required public init(unsafeFromRawPointer pointer: UnsafeMutableRawPointer) {
         self.pointer = pointer
     }
 
-    /// This constructor can be used to instantiate a fake object.
-    /// - Parameter noPointer: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
-    ///
-    /// - Warning:
-    ///     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing [Pointer] the FFI lower functions will crash.
-    public init(noPointer _: NoPointer) {
-        pointer = nil
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noPointer: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing [Pointer] the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noPointer: NoPointer) {
+        self.pointer = nil
     }
 
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
     public func uniffiClonePointer() -> UnsafeMutableRawPointer {
         return try! rustCall { uniffi_foobar_fn_clone_safeaddition(self.pointer, $0) }
     }
-
-    public convenience init() {
-        let pointer =
-            try! rustCall {
-                uniffi_foobar_fn_constructor_safeaddition_new($0
-                )
-            }
-        self.init(unsafeFromRawPointer: pointer)
-    }
+public convenience init() {
+    let pointer =
+        try! rustCall() {
+    uniffi_foobar_fn_constructor_safeaddition_new($0
+    )
+}
+    self.init(unsafeFromRawPointer: pointer)
+}
 
     deinit {
         guard let pointer = pointer else {
@@ -807,16 +905,26 @@ open class SafeAddition:
         try! rustCall { uniffi_foobar_fn_free_safeaddition(pointer, $0) }
     }
 
-    open func perform(lhs: Int64, rhs: Int64) throws -> Int64 {
-        return try FfiConverterInt64.lift(rustCallWithError(FfiConverterTypeComputationError.lift) {
-            uniffi_foobar_fn_method_safeaddition_perform(self.uniffiClonePointer(),
-                                                         FfiConverterInt64.lower(lhs),
-                                                         FfiConverterInt64.lower(rhs), $0)
-        })
-    }
+    
+
+    
+open func perform(lhs: Int64, rhs: Int64)throws  -> Int64 {
+    return try  FfiConverterInt64.lift(try rustCallWithError(FfiConverterTypeComputationError.lift) {
+    uniffi_foobar_fn_method_safeaddition_perform(self.uniffiClonePointer(),
+        FfiConverterInt64.lower(lhs),
+        FfiConverterInt64.lower(rhs),$0
+    )
+})
+}
+    
+
 }
 
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 public struct FfiConverterTypeSafeAddition: FfiConverter {
+
     typealias FfiType = UnsafeMutableRawPointer
     typealias SwiftType = SafeAddition
 
@@ -833,7 +941,7 @@ public struct FfiConverterTypeSafeAddition: FfiConverter {
         // The Rust code won't compile if a pointer won't fit in a UInt64.
         // We have to go via `UInt` because that's the thing that's the size of a pointer.
         let ptr = UnsafeMutableRawPointer(bitPattern: UInt(truncatingIfNeeded: v))
-        if ptr == nil {
+        if (ptr == nil) {
             throw UniffiInternalError.unexpectedNullPointer
         }
         return try lift(ptr!)
@@ -846,24 +954,40 @@ public struct FfiConverterTypeSafeAddition: FfiConverter {
     }
 }
 
+
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 public func FfiConverterTypeSafeAddition_lift(_ pointer: UnsafeMutableRawPointer) throws -> SafeAddition {
     return try FfiConverterTypeSafeAddition.lift(pointer)
 }
 
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 public func FfiConverterTypeSafeAddition_lower(_ value: SafeAddition) -> UnsafeMutableRawPointer {
     return FfiConverterTypeSafeAddition.lower(value)
 }
 
-public protocol SafeDivisionProtocol: AnyObject {
-    func perform(lhs: Int64, rhs: Int64) throws -> Int64
+
+
+
+public protocol SafeDivisionProtocol : AnyObject {
+    
+    func perform(lhs: Int64, rhs: Int64) throws  -> Int64
+    
 }
 
 open class SafeDivision:
-    SafeDivisionProtocol
-{
+    SafeDivisionProtocol {
     fileprivate let pointer: UnsafeMutableRawPointer!
 
     /// Used to instantiate a [FFIObject] without an actual pointer, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
     public struct NoPointer {
         public init() {}
     }
@@ -871,31 +995,36 @@ open class SafeDivision:
     // TODO: We'd like this to be `private` but for Swifty reasons,
     // we can't implement `FfiConverter` without making this `required` and we can't
     // make it `required` without making it `public`.
-    public required init(unsafeFromRawPointer pointer: UnsafeMutableRawPointer) {
+    required public init(unsafeFromRawPointer pointer: UnsafeMutableRawPointer) {
         self.pointer = pointer
     }
 
-    /// This constructor can be used to instantiate a fake object.
-    /// - Parameter noPointer: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
-    ///
-    /// - Warning:
-    ///     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing [Pointer] the FFI lower functions will crash.
-    public init(noPointer _: NoPointer) {
-        pointer = nil
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noPointer: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing [Pointer] the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noPointer: NoPointer) {
+        self.pointer = nil
     }
 
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
     public func uniffiClonePointer() -> UnsafeMutableRawPointer {
         return try! rustCall { uniffi_foobar_fn_clone_safedivision(self.pointer, $0) }
     }
-
-    public convenience init() {
-        let pointer =
-            try! rustCall {
-                uniffi_foobar_fn_constructor_safedivision_new($0
-                )
-            }
-        self.init(unsafeFromRawPointer: pointer)
-    }
+public convenience init() {
+    let pointer =
+        try! rustCall() {
+    uniffi_foobar_fn_constructor_safedivision_new($0
+    )
+}
+    self.init(unsafeFromRawPointer: pointer)
+}
 
     deinit {
         guard let pointer = pointer else {
@@ -905,16 +1034,26 @@ open class SafeDivision:
         try! rustCall { uniffi_foobar_fn_free_safedivision(pointer, $0) }
     }
 
-    open func perform(lhs: Int64, rhs: Int64) throws -> Int64 {
-        return try FfiConverterInt64.lift(rustCallWithError(FfiConverterTypeComputationError.lift) {
-            uniffi_foobar_fn_method_safedivision_perform(self.uniffiClonePointer(),
-                                                         FfiConverterInt64.lower(lhs),
-                                                         FfiConverterInt64.lower(rhs), $0)
-        })
-    }
+    
+
+    
+open func perform(lhs: Int64, rhs: Int64)throws  -> Int64 {
+    return try  FfiConverterInt64.lift(try rustCallWithError(FfiConverterTypeComputationError.lift) {
+    uniffi_foobar_fn_method_safedivision_perform(self.uniffiClonePointer(),
+        FfiConverterInt64.lower(lhs),
+        FfiConverterInt64.lower(rhs),$0
+    )
+})
+}
+    
+
 }
 
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 public struct FfiConverterTypeSafeDivision: FfiConverter {
+
     typealias FfiType = UnsafeMutableRawPointer
     typealias SwiftType = SafeDivision
 
@@ -931,7 +1070,7 @@ public struct FfiConverterTypeSafeDivision: FfiConverter {
         // The Rust code won't compile if a pointer won't fit in a UInt64.
         // We have to go via `UInt` because that's the thing that's the size of a pointer.
         let ptr = UnsafeMutableRawPointer(bitPattern: UInt(truncatingIfNeeded: v))
-        if ptr == nil {
+        if (ptr == nil) {
             throw UniffiInternalError.unexpectedNullPointer
         }
         return try lift(ptr!)
@@ -944,13 +1083,23 @@ public struct FfiConverterTypeSafeDivision: FfiConverter {
     }
 }
 
+
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 public func FfiConverterTypeSafeDivision_lift(_ pointer: UnsafeMutableRawPointer) throws -> SafeDivision {
     return try FfiConverterTypeSafeDivision.lift(pointer)
 }
 
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 public func FfiConverterTypeSafeDivision_lower(_ value: SafeDivision) -> UnsafeMutableRawPointer {
     return FfiConverterTypeSafeDivision.lower(value)
 }
+
 
 public struct ComputationResult {
     public var value: Int64
@@ -964,8 +1113,10 @@ public struct ComputationResult {
     }
 }
 
+
+
 extension ComputationResult: Equatable, Hashable {
-    public static func == (lhs: ComputationResult, rhs: ComputationResult) -> Bool {
+    public static func ==(lhs: ComputationResult, rhs: ComputationResult) -> Bool {
         if lhs.value != rhs.value {
             return false
         }
@@ -981,13 +1132,17 @@ extension ComputationResult: Equatable, Hashable {
     }
 }
 
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 public struct FfiConverterTypeComputationResult: FfiConverterRustBuffer {
     public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ComputationResult {
         return
             try ComputationResult(
-                value: FfiConverterInt64.read(from: &buf),
+                value: FfiConverterInt64.read(from: &buf), 
                 computationTime: FfiConverterDuration.read(from: &buf)
-            )
+        )
     }
 
     public static func write(_ value: ComputationResult, into buf: inout [UInt8]) {
@@ -996,46 +1151,75 @@ public struct FfiConverterTypeComputationResult: FfiConverterRustBuffer {
     }
 }
 
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 public func FfiConverterTypeComputationResult_lift(_ buf: RustBuffer) throws -> ComputationResult {
     return try FfiConverterTypeComputationResult.lift(buf)
 }
 
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 public func FfiConverterTypeComputationResult_lower(_ value: ComputationResult) -> RustBuffer {
     return FfiConverterTypeComputationResult.lower(value)
 }
 
+
 public enum ComputationError {
+
+    
+    
     case DivisionByZero
     case Overflow
     case IllegalComputationWithInitState
 }
 
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 public struct FfiConverterTypeComputationError: FfiConverterRustBuffer {
     typealias SwiftType = ComputationError
 
     public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ComputationError {
         let variant: Int32 = try readInt(&buf)
         switch variant {
+
+        
+
+        
         case 1: return .DivisionByZero
         case 2: return .Overflow
         case 3: return .IllegalComputationWithInitState
-        default: throw UniffiInternalError.unexpectedEnumCase
+
+         default: throw UniffiInternalError.unexpectedEnumCase
         }
     }
 
     public static func write(_ value: ComputationError, into buf: inout [UInt8]) {
         switch value {
+
+        
+
+        
+        
         case .DivisionByZero:
             writeInt(&buf, Int32(1))
-
+        
+        
         case .Overflow:
             writeInt(&buf, Int32(2))
-
+        
+        
         case .IllegalComputationWithInitState:
             writeInt(&buf, Int32(3))
+        
         }
     }
 }
+
 
 extension ComputationError: Equatable, Hashable {}
 
@@ -1049,6 +1233,7 @@ extension ComputationError: Foundation.LocalizedError {
 // See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
 
 public enum ComputationState {
+    
     /**
      * Initial state with no value computed
      */
@@ -1057,44 +1242,67 @@ public enum ComputationState {
     )
 }
 
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 public struct FfiConverterTypeComputationState: FfiConverterRustBuffer {
     typealias SwiftType = ComputationState
 
     public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ComputationState {
         let variant: Int32 = try readInt(&buf)
         switch variant {
+        
         case 1: return .`init`
-
-        case 2: return try .computed(result: FfiConverterTypeComputationResult.read(from: &buf)
-            )
-
+        
+        case 2: return .computed(result: try FfiConverterTypeComputationResult.read(from: &buf)
+        )
+        
         default: throw UniffiInternalError.unexpectedEnumCase
         }
     }
 
     public static func write(_ value: ComputationState, into buf: inout [UInt8]) {
         switch value {
+        
+        
         case .`init`:
             writeInt(&buf, Int32(1))
-
+        
+        
         case let .computed(result):
             writeInt(&buf, Int32(2))
             FfiConverterTypeComputationResult.write(result, into: &buf)
+            
         }
     }
 }
 
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 public func FfiConverterTypeComputationState_lift(_ buf: RustBuffer) throws -> ComputationState {
     return try FfiConverterTypeComputationState.lift(buf)
 }
 
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 public func FfiConverterTypeComputationState_lower(_ value: ComputationState) -> RustBuffer {
     return FfiConverterTypeComputationState.lower(value)
 }
 
+
+
 extension ComputationState: Equatable, Hashable {}
 
-private struct FfiConverterOptionTypeComputationResult: FfiConverterRustBuffer {
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterOptionTypeComputationResult: FfiConverterRustBuffer {
     typealias SwiftType = ComputationResult?
 
     public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
@@ -1114,19 +1322,17 @@ private struct FfiConverterOptionTypeComputationResult: FfiConverterRustBuffer {
         }
     }
 }
-
 public func safeAdditionOperator() -> BinaryOperator {
-    return try! FfiConverterTypeBinaryOperator.lift(try! rustCall {
-        uniffi_foobar_fn_func_safe_addition_operator($0
-        )
-    })
+    return try!  FfiConverterTypeBinaryOperator.lift(try! rustCall() {
+    uniffi_foobar_fn_func_safe_addition_operator($0
+    )
+})
 }
-
 public func safeDivisionOperator() -> BinaryOperator {
-    return try! FfiConverterTypeBinaryOperator.lift(try! rustCall {
-        uniffi_foobar_fn_func_safe_division_operator($0
-        )
-    })
+    return try!  FfiConverterTypeBinaryOperator.lift(try! rustCall() {
+    uniffi_foobar_fn_func_safe_division_operator($0
+    )
+})
 }
 
 private enum InitializationResult {
@@ -1134,7 +1340,6 @@ private enum InitializationResult {
     case contractVersionMismatch
     case apiChecksumMismatch
 }
-
 // Use a global variable to perform the versioning checks. Swift ensures that
 // the code inside is only computed once.
 private var initializationResult: InitializationResult = {
@@ -1145,37 +1350,37 @@ private var initializationResult: InitializationResult = {
     if bindings_contract_version != scaffolding_contract_version {
         return InitializationResult.contractVersionMismatch
     }
-    if uniffi_foobar_checksum_func_safe_addition_operator() != 2550 {
+    if (uniffi_foobar_checksum_func_safe_addition_operator() != 2550) {
         return InitializationResult.apiChecksumMismatch
     }
-    if uniffi_foobar_checksum_func_safe_division_operator() != 26772 {
+    if (uniffi_foobar_checksum_func_safe_division_operator() != 26772) {
         return InitializationResult.apiChecksumMismatch
     }
-    if uniffi_foobar_checksum_method_binaryoperator_perform() != 14159 {
+    if (uniffi_foobar_checksum_method_binaryoperator_perform() != 14159) {
         return InitializationResult.apiChecksumMismatch
     }
-    if uniffi_foobar_checksum_method_calculator_calculate() != 63226 {
+    if (uniffi_foobar_checksum_method_calculator_calculate() != 63226) {
         return InitializationResult.apiChecksumMismatch
     }
-    if uniffi_foobar_checksum_method_calculator_calculate_more() != 55050 {
+    if (uniffi_foobar_checksum_method_calculator_calculate_more() != 55050) {
         return InitializationResult.apiChecksumMismatch
     }
-    if uniffi_foobar_checksum_method_calculator_last_result() != 48598 {
+    if (uniffi_foobar_checksum_method_calculator_last_result() != 48598) {
         return InitializationResult.apiChecksumMismatch
     }
-    if uniffi_foobar_checksum_method_safeaddition_perform() != 41639 {
+    if (uniffi_foobar_checksum_method_safeaddition_perform() != 41639) {
         return InitializationResult.apiChecksumMismatch
     }
-    if uniffi_foobar_checksum_method_safedivision_perform() != 11259 {
+    if (uniffi_foobar_checksum_method_safedivision_perform() != 11259) {
         return InitializationResult.apiChecksumMismatch
     }
-    if uniffi_foobar_checksum_constructor_calculator_new() != 50473 {
+    if (uniffi_foobar_checksum_constructor_calculator_new() != 50473) {
         return InitializationResult.apiChecksumMismatch
     }
-    if uniffi_foobar_checksum_constructor_safeaddition_new() != 7323 {
+    if (uniffi_foobar_checksum_constructor_safeaddition_new() != 7323) {
         return InitializationResult.apiChecksumMismatch
     }
-    if uniffi_foobar_checksum_constructor_safedivision_new() != 18654 {
+    if (uniffi_foobar_checksum_constructor_safedivision_new() != 18654) {
         return InitializationResult.apiChecksumMismatch
     }
 
