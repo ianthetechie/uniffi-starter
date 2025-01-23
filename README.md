@@ -110,4 +110,4 @@ If you're interested in following a slightly more serious dev log about using Un
 in a real library, check out the following:
 
 * [Ferrostar on GitHub](https://github.com/stadiamaps/ferrostar) - a next gen navigation SDK I'm developing along with @Archdoog.
-* Follow [Stadia Maps](https://stadiamaps.com/) on your favorite channel (scroll down to the bottom for social links and a newsletter). We occasionally post tech blogs like [this one](https://stadiamaps.com/news/ferrostar-building-a-cross-platform-navigation-sdk-in-rust-part-1/).
+* Follow [Stadia Maps](https://stadiamaps.com/) on your favorite channel (scroll down to the bottom for social links and a newsletter). We occasionally post tech blogs like [this one](https://stadiamaps.com/news/ferrostar-building-a-cross-platform-navigation-sdk-in-rust-part-1/). Or [this one](https://stadiamaps.com/news/ferrostar-building-a-cross-platform-navigation-sdk-in-rust-part-2/)!
