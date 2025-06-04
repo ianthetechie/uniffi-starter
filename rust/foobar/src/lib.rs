@@ -1,13 +1,13 @@
 use std::sync::Arc;
-use std::time::{Duration, Instant};
 // You must call this once
 uniffi::setup_scaffolding!();
 
 // What follows is an intentionally ridiculous whirlwind tour of how you'd expose a complex API to UniFFI.
 
-#[derive(Debug, PartialEq, uniffi::Enum)]
+#[derive(Debug, PartialEq, uniffi::Enum, Default)]
 pub enum ComputationState {
     /// Initial state with no value computed
+    #[default]
     Init,
     Computed {
         result: ComputationResult,
@@ -17,7 +17,6 @@ pub enum ComputationState {
 #[derive(Copy, Clone, Debug, PartialEq, uniffi::Record)]
 pub struct ComputationResult {
     pub value: i64,
-    pub computation_time: Duration,
 }
 
 #[derive(Debug, PartialEq, thiserror::Error, uniffi::Error)]
@@ -39,7 +38,7 @@ pub trait BinaryOperator: Send + Sync {
 /// A somewhat silly demonstration of functional core/imperative shell in the form of a calculator with arbitrary operators.
 ///
 /// Operations return a new calculator with updated internal state reflecting the computation.
-#[derive(PartialEq, Debug, uniffi::Object)]
+#[derive(PartialEq, Debug, Default, uniffi::Object)]
 pub struct Calculator {
     state: ComputationState,
 }
@@ -48,9 +47,7 @@ pub struct Calculator {
 impl Calculator {
     #[uniffi::constructor]
     pub fn new() -> Self {
-        Self {
-            state: ComputationState::Init,
-        }
+        Self::default()
     }
 
     pub fn last_result(&self) -> Option<ComputationResult> {
@@ -67,15 +64,11 @@ impl Calculator {
         lhs: i64,
         rhs: i64,
     ) -> Result<Calculator, ComputationError> {
-        let start = Instant::now();
         let value = op.perform(lhs, rhs)?;
 
         Ok(Calculator {
             state: ComputationState::Computed {
-                result: ComputationResult {
-                    value,
-                    computation_time: start.elapsed(),
-                },
+                result: ComputationResult { value },
             },
         })
     }
@@ -92,15 +85,11 @@ impl Calculator {
             return Err(ComputationError::IllegalComputationWithInitState);
         };
 
-        let start = Instant::now();
         let value = op.perform(result.value, rhs)?;
 
         Ok(Calculator {
             state: ComputationState::Computed {
-                result: ComputationResult {
-                    value,
-                    computation_time: start.elapsed(),
-                },
+                result: ComputationResult { value },
             },
         })
     }
