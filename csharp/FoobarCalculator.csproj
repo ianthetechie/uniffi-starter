@@ -1,0 +1,58 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <OutputType>Exe</OutputType>
+        <TargetFramework>net8.0</TargetFramework>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <Nullable>enable</Nullable>
+        <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+        <!-- Build Parameters -->
+        <RustProjectDir>..\rust</RustProjectDir>
+        <RustTargetDir>$(RustProjectDir)\target\release</RustTargetDir>
+        <RustOutputFile>foobar</RustOutputFile>
+        <UniFFIConfig>$(MSBuildProjectDirectory)\uniffi.toml</UniFFIConfig>
+        <!-- This is relative to the Rust project directory -->
+        <UniFFIOutputDir>$(MSBuildProjectDirectory)</UniFFIOutputDir>
+        <RootNamespace>foobar</RootNamespace>
+    </PropertyGroup>
+
+    <Target Name="RustProjectClean" BeforeTargets="Clean">
+        <Exec Command="cargo clean" WorkingDirectory="$(RustProjectDir)" />
+    </Target>
+
+    <Target Name="Clone" BeforeTargets="GenerateBindings" Condition="'$(UseClone)' == 'true'">
+        <!-- Unix specific clone command -->
+        <Exec Command="sh ./scripts/clone-repo.sh $(CloneRepoUrl) $(CloneTargetDir) $(CommitHash)" Condition="'$(OS)' != 'Windows_NT'" />
+        <!-- Windows specific clone command -->
+        <Exec Command="powershell.exe -ExecutionPolicy Bypass -File .\scripts\clone-repo.ps1 -RepoUrl $(CloneRepoUrl) -TargetDir $(CloneTargetDir) -CommitHash $(CommitHash)" 
+              Condition="'$(OS)' == 'Windows_NT'" />
+    </Target>
+
+    <!-- Windows specific target to generate bindings -->
+    <Target Name="GenerateBindingsWindows" BeforeTargets="Build" Condition="'$(OS)' == 'Windows_NT'">
+        <Exec Command="cargo build --release" WorkingDirectory="$(RustProjectDir)" />
+        <Exec Command="uniffi-bindgen-cs $(RustTargetDir)\$(RustOutputFile).dll --config $(UniFFIConfig) --library -o $(UniFFIOutputDir) --no-format" WorkingDirectory="$(RustProjectDir)" />
+    </Target>
+    
+    <!-- Unix specific target to generate bindings -->
+    <Target Name="GenerateBindingsUnix" BeforeTargets="Build" Condition="'$(OS)' != 'Windows_NT'">
+        <Exec Command="cargo build --release" WorkingDirectory="$(RustProjectDir)" />
+        <Exec Command="uniffi-bindgen-cs $(RustTargetDir)/$(RustOutputFile).a --config $(UniFFIConfig) --library -o $(UniFFIOutputDir) --no-format" WorkingDirectory="$(RustProjectDir)" />
+    </Target>
+
+    <Target Name="MoveNativeLibsUnix" AfterTargets="GenerateBindingsUnix" Condition="'$(OS)' != 'Windows_NT'">
+        <Exec Command="sh ./scripts/move-native-libs.sh $(RustTargetDir)/lib$(RustOutputFile).so runtimes/linux-x64/native/libferrostar.so" />
+    </Target>
+
+    <Target Name="MoveNativeLibsWindows" AfterTargets="GenerateBindingsWindows" Condition="'$(OS)' == 'Windows_NT'">
+        <Exec Command='powershell.exe -ExecutionPolicy Bypass -File .\scripts\move-native-libs.ps1 -RustOutputFile $(RustTargetDir)\$(RustOutputFile).dll -DestPath .\runtimes\win-x64\native\$(RustOutputFile).dll' WorkingDirectory="$(MSBuildProjectDirectory)" />
+    </Target>
+
+    <ItemGroup>
+        <None Include="runtimes\win-x64\native\$(RustOutputFile).dll"
+              Pack="true"
+              PackagePath="runtimes/win-x64/native/"
+              CopyToOutputDirectory="PreserveNewest"
+              Link="$(RustOutputFile).dll" />
+    </ItemGroup>
+</Project>

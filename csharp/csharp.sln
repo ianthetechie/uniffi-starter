@@ -1,0 +1,16 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FoobarCalculator", "FoobarCalculator.csproj", "{BA39BCE1-0198-4368-9BE6-5816C9D3249C}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{BA39BCE1-0198-4368-9BE6-5816C9D3249C}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{BA39BCE1-0198-4368-9BE6-5816C9D3249C}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{BA39BCE1-0198-4368-9BE6-5816C9D3249C}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{BA39BCE1-0198-4368-9BE6-5816C9D3249C}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+EndGlobal
