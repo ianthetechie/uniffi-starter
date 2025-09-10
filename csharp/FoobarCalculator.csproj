@@ -31,28 +31,40 @@
     <!-- Windows specific target to generate bindings -->
     <Target Name="GenerateBindingsWindows" BeforeTargets="Build" Condition="'$(OS)' == 'Windows_NT'">
         <Exec Command="cargo build --release" WorkingDirectory="$(RustProjectDir)" />
-        <Exec Command="uniffi-bindgen-cs $(RustTargetDir)\$(RustOutputFile).dll --config $(UniFFIConfig) --library -o $(UniFFIOutputDir) --no-format" WorkingDirectory="$(RustProjectDir)" />
+        <Exec Command="uniffi-bindgen-cs $([System.IO.Path]::GetFullPath($(RustTargetDir)\$(RustOutputFile).dll)) --config $(UniFFIConfig) --library -o $(UniFFIOutputDir) --no-format" WorkingDirectory="$(RustProjectDir)" />
     </Target>
     
     <!-- Unix specific target to generate bindings -->
     <Target Name="GenerateBindingsUnix" BeforeTargets="Build" Condition="'$(OS)' != 'Windows_NT'">
         <Exec Command="cargo build --release" WorkingDirectory="$(RustProjectDir)" />
-        <Exec Command="uniffi-bindgen-cs $(RustTargetDir)/$(RustOutputFile).a --config $(UniFFIConfig) --library -o $(UniFFIOutputDir) --no-format" WorkingDirectory="$(RustProjectDir)" />
+        <Exec Command="uniffi-bindgen-cs $([System.IO.Path]::GetFullPath($(RustTargetDir)/lib$(RustOutputFile).a)) --config $(UniFFIConfig) --library -o $(UniFFIOutputDir) --no-format" WorkingDirectory="$(RustProjectDir)" />
     </Target>
 
-    <Target Name="MoveNativeLibsUnix" AfterTargets="GenerateBindingsUnix" Condition="'$(OS)' != 'Windows_NT'">
-        <Exec Command="sh ./scripts/move-native-libs.sh $(RustTargetDir)/lib$(RustOutputFile).so runtimes/linux-x64/native/libferrostar.so" />
+    <Target Name="MoveNativeLibsLinux" AfterTargets="GenerateBindingsUnix" Condition="'$(MSBuildRuntimeOS)' == 'linux'">
+        <Exec Command="sh ./scripts/move-native-libs.sh $([System.IO.Path]::GetFullPath($(RustTargetDir)/lib$(RustOutputFile).so)) runtimes/linux-x64/native/libfoobar.so" />
+    </Target>
+
+    <Target Name="MoveNativeLibsOSX" AfterTargets="GenerateBindingsUnix" Condition="'$(MSBuildRuntimeOS)' == 'osx' or '$(OS)' == 'Unix'">
+        <Exec Command="sh ./scripts/move-native-libs.sh $([System.IO.Path]::GetFullPath($(RustTargetDir)/lib$(RustOutputFile).dylib)) runtimes/osx-arm64/native/uniffi_$(RustOutputFile).dylib" />
     </Target>
 
     <Target Name="MoveNativeLibsWindows" AfterTargets="GenerateBindingsWindows" Condition="'$(OS)' == 'Windows_NT'">
-        <Exec Command='powershell.exe -ExecutionPolicy Bypass -File .\scripts\move-native-libs.ps1 -RustOutputFile $(RustTargetDir)\$(RustOutputFile).dll -DestPath .\runtimes\win-x64\native\$(RustOutputFile).dll' WorkingDirectory="$(MSBuildProjectDirectory)" />
+        <Exec Command='powershell.exe -ExecutionPolicy Bypass -File .\scripts\move-native-libs.ps1 -RustOutputFile $([System.IO.Path]::GetFullPath($(RustTargetDir)\$(RustOutputFile).dll)) -DestPath .\runtimes\win-x64\native\$(RustOutputFile).dll' WorkingDirectory="$(MSBuildProjectDirectory)" />
     </Target>
 
-    <ItemGroup>
+    <ItemGroup Condition="'$(OS)' == 'Windows_NT'">
         <None Include="runtimes\win-x64\native\$(RustOutputFile).dll"
               Pack="true"
               PackagePath="runtimes/win-x64/native/"
               CopyToOutputDirectory="PreserveNewest"
               Link="$(RustOutputFile).dll" />
+    </ItemGroup>
+    
+    <ItemGroup Condition="'$(MSBuildRuntimeOS)' == 'osx' or '$(OS)' == 'Unix'">
+        <None Include="runtimes\osx-arm64\native\uniffi_$(RustOutputFile).dylib"
+              Pack="true"
+              PackagePath="runtimes/osx-arm64/native/"
+              CopyToOutputDirectory="PreserveNewest"
+              Link="uniffi_$(RustOutputFile).dylib" />
     </ItemGroup>
 </Project>

@@ -290,3 +290,4 @@ __pycache__/
 
 foobar.cs
 foobar.dll
+uniffi_foobar.dylib
