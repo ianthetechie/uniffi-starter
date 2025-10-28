@@ -281,7 +281,7 @@ private func makeRustCall<T, E: Swift.Error>(
     _ callback: (UnsafeMutablePointer<RustCallStatus>) -> T,
     errorHandler: ((RustBuffer) throws -> E)?
 ) throws -> T {
-    uniffiEnsureInitialized()
+    uniffiEnsureFoobarInitialized()
     var callStatus = RustCallStatus.init()
     let returnedVal = callback(&callStatus)
     try uniffiCheckCallStatus(callStatus: callStatus, errorHandler: errorHandler)
@@ -352,18 +352,29 @@ private func uniffiTraitInterfaceCallWithError<T, E>(
         callStatus.pointee.errorBuf = FfiConverterString.lower(String(describing: error))
     }
 }
-fileprivate class UniffiHandleMap<T> {
-    private var map: [UInt64: T] = [:]
+// Initial value and increment amount for handles. 
+// These ensure that SWIFT handles always have the lowest bit set
+fileprivate let UNIFFI_HANDLEMAP_INITIAL: UInt64 = 1
+fileprivate let UNIFFI_HANDLEMAP_DELTA: UInt64 = 2
+
+fileprivate final class UniffiHandleMap<T>: @unchecked Sendable {
+    // All mutation happens with this lock held, which is why we implement @unchecked Sendable.
     private let lock = NSLock()
-    private var currentHandle: UInt64 = 1
+    private var map: [UInt64: T] = [:]
+    private var currentHandle: UInt64 = UNIFFI_HANDLEMAP_INITIAL
 
     func insert(obj: T) -> UInt64 {
         lock.withLock {
-            let handle = currentHandle
-            currentHandle += 1
-            map[handle] = obj
-            return handle
+            return doInsert(obj)
         }
+    }
+
+    // Low-level insert function, this assumes `lock` is held.
+    private func doInsert(_ obj: T) -> UInt64 {
+        let handle = currentHandle
+        currentHandle += UNIFFI_HANDLEMAP_DELTA
+        map[handle] = obj
+        return handle
     }
 
      func get(handle: UInt64) throws -> T {
@@ -372,6 +383,15 @@ fileprivate class UniffiHandleMap<T> {
                 throw UniffiInternalError.unexpectedStaleHandle
             }
             return obj
+        }
+    }
+
+     func clone(handle: UInt64) throws -> UInt64 {
+        try lock.withLock {
+            guard let obj = map[handle] else {
+                throw UniffiInternalError.unexpectedStaleHandle
+            }
+            return doInsert(obj)
         }
     }
 
@@ -394,7 +414,13 @@ fileprivate class UniffiHandleMap<T> {
 
 
 // Public interface members begin here.
-
+// Magic number for the Rust proxy to call using the same mechanism as every other method,
+// to free the callback once it's dropped by Rust.
+private let IDX_CALLBACK_FREE: Int32 = 0
+// Callback return codes
+private let UNIFFI_CALLBACK_SUCCESS: Int32 = 0
+private let UNIFFI_CALLBACK_ERROR: Int32 = 1
+private let UNIFFI_CALLBACK_UNEXPECTED_ERROR: Int32 = 2
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
@@ -487,68 +513,66 @@ fileprivate struct FfiConverterDuration: FfiConverterRustBuffer {
 /**
  * A binary operator that performs some mathematical operation with two numbers.
  */
-public protocol BinaryOperator : AnyObject {
+public protocol BinaryOperator: AnyObject, Sendable {
     
     func perform(lhs: Int64, rhs: Int64) throws  -> Int64
     
 }
-
 /**
  * A binary operator that performs some mathematical operation with two numbers.
  */
-open class BinaryOperatorImpl:
-    BinaryOperator {
-    fileprivate let pointer: UnsafeMutableRawPointer!
+open class BinaryOperatorImpl: BinaryOperator, @unchecked Sendable {
+    fileprivate let handle: UInt64
 
-    /// Used to instantiate a [FFIObject] without an actual pointer, for fakes in tests, mostly.
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    public struct NoPointer {
+    public struct NoHandle {
         public init() {}
     }
 
     // TODO: We'd like this to be `private` but for Swifty reasons,
     // we can't implement `FfiConverter` without making this `required` and we can't
     // make it `required` without making it `public`.
-    required public init(unsafeFromRawPointer pointer: UnsafeMutableRawPointer) {
-        self.pointer = pointer
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
     }
 
     // This constructor can be used to instantiate a fake object.
-    // - Parameter noPointer: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
     //
     // - Warning:
-    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing [Pointer] the FFI lower functions will crash.
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    public init(noPointer: NoPointer) {
-        self.pointer = nil
+    public init(noHandle: NoHandle) {
+        self.handle = 0
     }
 
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    public func uniffiClonePointer() -> UnsafeMutableRawPointer {
-        return try! rustCall { uniffi_foobar_fn_clone_binaryoperator(self.pointer, $0) }
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_foobar_fn_clone_binaryoperator(self.handle, $0) }
     }
     // No primary constructor declared for this class.
 
     deinit {
-        guard let pointer = pointer else {
-            return
-        }
-
-        try! rustCall { uniffi_foobar_fn_free_binaryoperator(pointer, $0) }
+        try! rustCall { uniffi_foobar_fn_free_binaryoperator(handle, $0) }
     }
 
     
 
     
-open func perform(lhs: Int64, rhs: Int64)throws  -> Int64 {
-    return try  FfiConverterInt64.lift(try rustCallWithError(FfiConverterTypeComputationError.lift) {
-    uniffi_foobar_fn_method_binaryoperator_perform(self.uniffiClonePointer(),
+open func perform(lhs: Int64, rhs: Int64)throws  -> Int64  {
+    return try  FfiConverterInt64.lift(try rustCallWithError(FfiConverterTypeComputationError_lift) {
+    uniffi_foobar_fn_method_binaryoperator_perform(
+            self.uniffiCloneHandle(),
         FfiConverterInt64.lower(lhs),
         FfiConverterInt64.lower(rhs),$0
     )
@@ -556,21 +580,34 @@ open func perform(lhs: Int64, rhs: Int64)throws  -> Int64 {
 }
     
 
+    
 }
-// Magic number for the Rust proxy to call using the same mechanism as every other method,
-// to free the callback once it's dropped by Rust.
-private let IDX_CALLBACK_FREE: Int32 = 0
-// Callback return codes
-private let UNIFFI_CALLBACK_SUCCESS: Int32 = 0
-private let UNIFFI_CALLBACK_ERROR: Int32 = 1
-private let UNIFFI_CALLBACK_UNEXPECTED_ERROR: Int32 = 2
+
+
 
 // Put the implementation in a struct so we don't pollute the top-level namespace
 fileprivate struct UniffiCallbackInterfaceBinaryOperator {
 
     // Create the VTable using a series of closures.
     // Swift automatically converts these into C callback functions.
-    static var vtable: UniffiVTableCallbackInterfaceBinaryOperator = UniffiVTableCallbackInterfaceBinaryOperator(
+    //
+    // This creates 1-element array, since this seems to be the only way to construct a const
+    // pointer that we can pass to the Rust code.
+    static let vtable: [UniffiVTableCallbackInterfaceBinaryOperator] = [UniffiVTableCallbackInterfaceBinaryOperator(
+        uniffiFree: { (uniffiHandle: UInt64) -> () in
+            do {
+                try FfiConverterTypeBinaryOperator.handleMap.remove(handle: uniffiHandle)
+            } catch {
+                print("Uniffi callback interface BinaryOperator: handle missing in uniffiFree")
+            }
+        },
+        uniffiClone: { (uniffiHandle: UInt64) -> UInt64 in
+            do {
+                return try FfiConverterTypeBinaryOperator.handleMap.clone(handle: uniffiHandle)
+            } catch {
+                fatalError("Uniffi callback interface BinaryOperator: handle missing in uniffiClone")
+            }
+        },
         perform: { (
             uniffiHandle: UInt64,
             lhs: Int64,
@@ -595,76 +632,72 @@ fileprivate struct UniffiCallbackInterfaceBinaryOperator {
                 callStatus: uniffiCallStatus,
                 makeCall: makeCall,
                 writeReturn: writeReturn,
-                lowerError: FfiConverterTypeComputationError.lower
+                lowerError: FfiConverterTypeComputationError_lower
             )
-        },
-        uniffiFree: { (uniffiHandle: UInt64) -> () in
-            let result = try? FfiConverterTypeBinaryOperator.handleMap.remove(handle: uniffiHandle)
-            if result == nil {
-                print("Uniffi callback interface BinaryOperator: handle missing in uniffiFree")
-            }
         }
-    )
+    )]
 }
 
 private func uniffiCallbackInitBinaryOperator() {
-    uniffi_foobar_fn_init_callback_vtable_binaryoperator(&UniffiCallbackInterfaceBinaryOperator.vtable)
+    uniffi_foobar_fn_init_callback_vtable_binaryoperator(UniffiCallbackInterfaceBinaryOperator.vtable)
 }
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
 public struct FfiConverterTypeBinaryOperator: FfiConverter {
-    fileprivate static var handleMap = UniffiHandleMap<BinaryOperator>()
+    fileprivate static let handleMap = UniffiHandleMap<BinaryOperator>()
 
-    typealias FfiType = UnsafeMutableRawPointer
+    typealias FfiType = UInt64
     typealias SwiftType = BinaryOperator
 
-    public static func lift(_ pointer: UnsafeMutableRawPointer) throws -> BinaryOperator {
-        return BinaryOperatorImpl(unsafeFromRawPointer: pointer)
+    public static func lift(_ handle: UInt64) throws -> BinaryOperator {
+        if ((handle & 1) == 0) {
+            // Rust-generated handle, construct a new class that uses the handle to implement the
+            // interface
+            return BinaryOperatorImpl(unsafeFromHandle: handle)
+        } else {
+            // Swift-generated handle, get the object from the handle map
+            return try handleMap.remove(handle: handle)
+        }
     }
 
-    public static func lower(_ value: BinaryOperator) -> UnsafeMutableRawPointer {
-        guard let ptr = UnsafeMutableRawPointer(bitPattern: UInt(truncatingIfNeeded: handleMap.insert(obj: value))) else {
-            fatalError("Cast to UnsafeMutableRawPointer failed")
-        }
-        return ptr
+    public static func lower(_ value: BinaryOperator) -> UInt64 {
+         if let rustImpl = value as? BinaryOperatorImpl {
+             // Rust-implemented object.  Clone the handle and return it
+            return rustImpl.uniffiCloneHandle()
+         } else {
+            // Swift object, generate a new vtable handle and return that.
+            return handleMap.insert(obj: value)
+         }
     }
 
     public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> BinaryOperator {
-        let v: UInt64 = try readInt(&buf)
-        // The Rust code won't compile if a pointer won't fit in a UInt64.
-        // We have to go via `UInt` because that's the thing that's the size of a pointer.
-        let ptr = UnsafeMutableRawPointer(bitPattern: UInt(truncatingIfNeeded: v))
-        if (ptr == nil) {
-            throw UniffiInternalError.unexpectedNullPointer
-        }
-        return try lift(ptr!)
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
     }
 
     public static func write(_ value: BinaryOperator, into buf: inout [UInt8]) {
-        // This fiddling is because `Int` is the thing that's the same size as a pointer.
-        // The Rust code won't compile if a pointer won't fit in a `UInt64`.
-        writeInt(&buf, UInt64(bitPattern: Int64(Int(bitPattern: lower(value)))))
+        writeInt(&buf, lower(value))
     }
 }
 
 
-
-
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-public func FfiConverterTypeBinaryOperator_lift(_ pointer: UnsafeMutableRawPointer) throws -> BinaryOperator {
-    return try FfiConverterTypeBinaryOperator.lift(pointer)
+public func FfiConverterTypeBinaryOperator_lift(_ handle: UInt64) throws -> BinaryOperator {
+    return try FfiConverterTypeBinaryOperator.lift(handle)
 }
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-public func FfiConverterTypeBinaryOperator_lower(_ value: BinaryOperator) -> UnsafeMutableRawPointer {
+public func FfiConverterTypeBinaryOperator_lower(_ value: BinaryOperator) -> UInt64 {
     return FfiConverterTypeBinaryOperator.lower(value)
 }
+
+
 
 
 
@@ -674,7 +707,7 @@ public func FfiConverterTypeBinaryOperator_lower(_ value: BinaryOperator) -> Uns
  *
  * Operations return a new calculator with updated internal state reflecting the computation.
  */
-public protocol CalculatorProtocol : AnyObject {
+public protocol CalculatorProtocol: AnyObject, Sendable {
     
     /**
      * Performs a calculation using the supplied binary operator and operands.
@@ -691,64 +724,61 @@ public protocol CalculatorProtocol : AnyObject {
     func lastResult()  -> ComputationResult?
     
 }
-
 /**
  * A somewhat silly demonstration of functional core/imperative shell in the form of a calculator with arbitrary operators.
  *
  * Operations return a new calculator with updated internal state reflecting the computation.
  */
-open class Calculator:
-    CalculatorProtocol {
-    fileprivate let pointer: UnsafeMutableRawPointer!
+open class Calculator: CalculatorProtocol, @unchecked Sendable {
+    fileprivate let handle: UInt64
 
-    /// Used to instantiate a [FFIObject] without an actual pointer, for fakes in tests, mostly.
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    public struct NoPointer {
+    public struct NoHandle {
         public init() {}
     }
 
     // TODO: We'd like this to be `private` but for Swifty reasons,
     // we can't implement `FfiConverter` without making this `required` and we can't
     // make it `required` without making it `public`.
-    required public init(unsafeFromRawPointer pointer: UnsafeMutableRawPointer) {
-        self.pointer = pointer
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
     }
 
     // This constructor can be used to instantiate a fake object.
-    // - Parameter noPointer: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
     //
     // - Warning:
-    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing [Pointer] the FFI lower functions will crash.
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    public init(noPointer: NoPointer) {
-        self.pointer = nil
+    public init(noHandle: NoHandle) {
+        self.handle = 0
     }
 
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    public func uniffiClonePointer() -> UnsafeMutableRawPointer {
-        return try! rustCall { uniffi_foobar_fn_clone_calculator(self.pointer, $0) }
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_foobar_fn_clone_calculator(self.handle, $0) }
     }
 public convenience init() {
-    let pointer =
+    let handle =
         try! rustCall() {
     uniffi_foobar_fn_constructor_calculator_new($0
     )
 }
-    self.init(unsafeFromRawPointer: pointer)
+    self.init(unsafeFromHandle: handle)
 }
 
     deinit {
-        guard let pointer = pointer else {
-            return
-        }
-
-        try! rustCall { uniffi_foobar_fn_free_calculator(pointer, $0) }
+        try! rustCall { uniffi_foobar_fn_free_calculator(handle, $0) }
     }
 
     
@@ -757,10 +787,11 @@ public convenience init() {
     /**
      * Performs a calculation using the supplied binary operator and operands.
      */
-open func calculate(op: BinaryOperator, lhs: Int64, rhs: Int64)throws  -> Calculator {
-    return try  FfiConverterTypeCalculator.lift(try rustCallWithError(FfiConverterTypeComputationError.lift) {
-    uniffi_foobar_fn_method_calculator_calculate(self.uniffiClonePointer(),
-        FfiConverterTypeBinaryOperator.lower(op),
+open func calculate(op: BinaryOperator, lhs: Int64, rhs: Int64)throws  -> Calculator  {
+    return try  FfiConverterTypeCalculator_lift(try rustCallWithError(FfiConverterTypeComputationError_lift) {
+    uniffi_foobar_fn_method_calculator_calculate(
+            self.uniffiCloneHandle(),
+        FfiConverterTypeBinaryOperator_lower(op),
         FfiConverterInt64.lower(lhs),
         FfiConverterInt64.lower(rhs),$0
     )
@@ -772,145 +803,138 @@ open func calculate(op: BinaryOperator, lhs: Int64, rhs: Int64)throws  -> Calcul
      *
      * The supplied operand will be the right-hand side in the mathematical operation.
      */
-open func calculateMore(op: BinaryOperator, rhs: Int64)throws  -> Calculator {
-    return try  FfiConverterTypeCalculator.lift(try rustCallWithError(FfiConverterTypeComputationError.lift) {
-    uniffi_foobar_fn_method_calculator_calculate_more(self.uniffiClonePointer(),
-        FfiConverterTypeBinaryOperator.lower(op),
+open func calculateMore(op: BinaryOperator, rhs: Int64)throws  -> Calculator  {
+    return try  FfiConverterTypeCalculator_lift(try rustCallWithError(FfiConverterTypeComputationError_lift) {
+    uniffi_foobar_fn_method_calculator_calculate_more(
+            self.uniffiCloneHandle(),
+        FfiConverterTypeBinaryOperator_lower(op),
         FfiConverterInt64.lower(rhs),$0
     )
 })
 }
     
-open func lastResult() -> ComputationResult? {
+open func lastResult() -> ComputationResult?  {
     return try!  FfiConverterOptionTypeComputationResult.lift(try! rustCall() {
-    uniffi_foobar_fn_method_calculator_last_result(self.uniffiClonePointer(),$0
+    uniffi_foobar_fn_method_calculator_last_result(
+            self.uniffiCloneHandle(),$0
     )
 })
 }
     
 
+    
 }
+
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
 public struct FfiConverterTypeCalculator: FfiConverter {
-
-    typealias FfiType = UnsafeMutableRawPointer
+    typealias FfiType = UInt64
     typealias SwiftType = Calculator
 
-    public static func lift(_ pointer: UnsafeMutableRawPointer) throws -> Calculator {
-        return Calculator(unsafeFromRawPointer: pointer)
+    public static func lift(_ handle: UInt64) throws -> Calculator {
+        return Calculator(unsafeFromHandle: handle)
     }
 
-    public static func lower(_ value: Calculator) -> UnsafeMutableRawPointer {
-        return value.uniffiClonePointer()
+    public static func lower(_ value: Calculator) -> UInt64 {
+        return value.uniffiCloneHandle()
     }
 
     public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> Calculator {
-        let v: UInt64 = try readInt(&buf)
-        // The Rust code won't compile if a pointer won't fit in a UInt64.
-        // We have to go via `UInt` because that's the thing that's the size of a pointer.
-        let ptr = UnsafeMutableRawPointer(bitPattern: UInt(truncatingIfNeeded: v))
-        if (ptr == nil) {
-            throw UniffiInternalError.unexpectedNullPointer
-        }
-        return try lift(ptr!)
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
     }
 
     public static func write(_ value: Calculator, into buf: inout [UInt8]) {
-        // This fiddling is because `Int` is the thing that's the same size as a pointer.
-        // The Rust code won't compile if a pointer won't fit in a `UInt64`.
-        writeInt(&buf, UInt64(bitPattern: Int64(Int(bitPattern: lower(value)))))
+        writeInt(&buf, lower(value))
     }
 }
 
 
-
-
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-public func FfiConverterTypeCalculator_lift(_ pointer: UnsafeMutableRawPointer) throws -> Calculator {
-    return try FfiConverterTypeCalculator.lift(pointer)
+public func FfiConverterTypeCalculator_lift(_ handle: UInt64) throws -> Calculator {
+    return try FfiConverterTypeCalculator.lift(handle)
 }
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-public func FfiConverterTypeCalculator_lower(_ value: Calculator) -> UnsafeMutableRawPointer {
+public func FfiConverterTypeCalculator_lower(_ value: Calculator) -> UInt64 {
     return FfiConverterTypeCalculator.lower(value)
 }
 
 
 
 
-public protocol SafeAdditionProtocol : AnyObject {
+
+
+public protocol SafeAdditionProtocol: AnyObject, Sendable {
     
     func perform(lhs: Int64, rhs: Int64) throws  -> Int64
     
 }
+open class SafeAddition: SafeAdditionProtocol, @unchecked Sendable {
+    fileprivate let handle: UInt64
 
-open class SafeAddition:
-    SafeAdditionProtocol {
-    fileprivate let pointer: UnsafeMutableRawPointer!
-
-    /// Used to instantiate a [FFIObject] without an actual pointer, for fakes in tests, mostly.
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    public struct NoPointer {
+    public struct NoHandle {
         public init() {}
     }
 
     // TODO: We'd like this to be `private` but for Swifty reasons,
     // we can't implement `FfiConverter` without making this `required` and we can't
     // make it `required` without making it `public`.
-    required public init(unsafeFromRawPointer pointer: UnsafeMutableRawPointer) {
-        self.pointer = pointer
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
     }
 
     // This constructor can be used to instantiate a fake object.
-    // - Parameter noPointer: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
     //
     // - Warning:
-    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing [Pointer] the FFI lower functions will crash.
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    public init(noPointer: NoPointer) {
-        self.pointer = nil
+    public init(noHandle: NoHandle) {
+        self.handle = 0
     }
 
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    public func uniffiClonePointer() -> UnsafeMutableRawPointer {
-        return try! rustCall { uniffi_foobar_fn_clone_safeaddition(self.pointer, $0) }
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_foobar_fn_clone_safeaddition(self.handle, $0) }
     }
 public convenience init() {
-    let pointer =
+    let handle =
         try! rustCall() {
     uniffi_foobar_fn_constructor_safeaddition_new($0
     )
 }
-    self.init(unsafeFromRawPointer: pointer)
+    self.init(unsafeFromHandle: handle)
 }
 
     deinit {
-        guard let pointer = pointer else {
-            return
-        }
-
-        try! rustCall { uniffi_foobar_fn_free_safeaddition(pointer, $0) }
+        try! rustCall { uniffi_foobar_fn_free_safeaddition(handle, $0) }
     }
 
     
 
     
-open func perform(lhs: Int64, rhs: Int64)throws  -> Int64 {
-    return try  FfiConverterInt64.lift(try rustCallWithError(FfiConverterTypeComputationError.lift) {
-    uniffi_foobar_fn_method_safeaddition_perform(self.uniffiClonePointer(),
+open func perform(lhs: Int64, rhs: Int64)throws  -> Int64  {
+    return try  FfiConverterInt64.lift(try rustCallWithError(FfiConverterTypeComputationError_lift) {
+    uniffi_foobar_fn_method_safeaddition_perform(
+            self.uniffiCloneHandle(),
         FfiConverterInt64.lower(lhs),
         FfiConverterInt64.lower(rhs),$0
     )
@@ -918,128 +942,121 @@ open func perform(lhs: Int64, rhs: Int64)throws  -> Int64 {
 }
     
 
+    
 }
+
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
 public struct FfiConverterTypeSafeAddition: FfiConverter {
-
-    typealias FfiType = UnsafeMutableRawPointer
+    typealias FfiType = UInt64
     typealias SwiftType = SafeAddition
 
-    public static func lift(_ pointer: UnsafeMutableRawPointer) throws -> SafeAddition {
-        return SafeAddition(unsafeFromRawPointer: pointer)
+    public static func lift(_ handle: UInt64) throws -> SafeAddition {
+        return SafeAddition(unsafeFromHandle: handle)
     }
 
-    public static func lower(_ value: SafeAddition) -> UnsafeMutableRawPointer {
-        return value.uniffiClonePointer()
+    public static func lower(_ value: SafeAddition) -> UInt64 {
+        return value.uniffiCloneHandle()
     }
 
     public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SafeAddition {
-        let v: UInt64 = try readInt(&buf)
-        // The Rust code won't compile if a pointer won't fit in a UInt64.
-        // We have to go via `UInt` because that's the thing that's the size of a pointer.
-        let ptr = UnsafeMutableRawPointer(bitPattern: UInt(truncatingIfNeeded: v))
-        if (ptr == nil) {
-            throw UniffiInternalError.unexpectedNullPointer
-        }
-        return try lift(ptr!)
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
     }
 
     public static func write(_ value: SafeAddition, into buf: inout [UInt8]) {
-        // This fiddling is because `Int` is the thing that's the same size as a pointer.
-        // The Rust code won't compile if a pointer won't fit in a `UInt64`.
-        writeInt(&buf, UInt64(bitPattern: Int64(Int(bitPattern: lower(value)))))
+        writeInt(&buf, lower(value))
     }
 }
-
+extension SafeAddition: BinaryOperator {}
 
 
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-public func FfiConverterTypeSafeAddition_lift(_ pointer: UnsafeMutableRawPointer) throws -> SafeAddition {
-    return try FfiConverterTypeSafeAddition.lift(pointer)
+public func FfiConverterTypeSafeAddition_lift(_ handle: UInt64) throws -> SafeAddition {
+    return try FfiConverterTypeSafeAddition.lift(handle)
 }
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-public func FfiConverterTypeSafeAddition_lower(_ value: SafeAddition) -> UnsafeMutableRawPointer {
+public func FfiConverterTypeSafeAddition_lower(_ value: SafeAddition) -> UInt64 {
     return FfiConverterTypeSafeAddition.lower(value)
 }
 
 
 
 
-public protocol SafeDivisionProtocol : AnyObject {
+
+
+public protocol SafeDivisionProtocol: AnyObject, Sendable {
     
     func perform(lhs: Int64, rhs: Int64) throws  -> Int64
     
 }
+open class SafeDivision: SafeDivisionProtocol, @unchecked Sendable {
+    fileprivate let handle: UInt64
 
-open class SafeDivision:
-    SafeDivisionProtocol {
-    fileprivate let pointer: UnsafeMutableRawPointer!
-
-    /// Used to instantiate a [FFIObject] without an actual pointer, for fakes in tests, mostly.
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    public struct NoPointer {
+    public struct NoHandle {
         public init() {}
     }
 
     // TODO: We'd like this to be `private` but for Swifty reasons,
     // we can't implement `FfiConverter` without making this `required` and we can't
     // make it `required` without making it `public`.
-    required public init(unsafeFromRawPointer pointer: UnsafeMutableRawPointer) {
-        self.pointer = pointer
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
     }
 
     // This constructor can be used to instantiate a fake object.
-    // - Parameter noPointer: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
     //
     // - Warning:
-    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing [Pointer] the FFI lower functions will crash.
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    public init(noPointer: NoPointer) {
-        self.pointer = nil
+    public init(noHandle: NoHandle) {
+        self.handle = 0
     }
 
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    public func uniffiClonePointer() -> UnsafeMutableRawPointer {
-        return try! rustCall { uniffi_foobar_fn_clone_safedivision(self.pointer, $0) }
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_foobar_fn_clone_safedivision(self.handle, $0) }
     }
 public convenience init() {
-    let pointer =
+    let handle =
         try! rustCall() {
     uniffi_foobar_fn_constructor_safedivision_new($0
     )
 }
-    self.init(unsafeFromRawPointer: pointer)
+    self.init(unsafeFromHandle: handle)
 }
 
     deinit {
-        guard let pointer = pointer else {
-            return
-        }
-
-        try! rustCall { uniffi_foobar_fn_free_safedivision(pointer, $0) }
+        try! rustCall { uniffi_foobar_fn_free_safedivision(handle, $0) }
     }
 
     
 
     
-open func perform(lhs: Int64, rhs: Int64)throws  -> Int64 {
-    return try  FfiConverterInt64.lift(try rustCallWithError(FfiConverterTypeComputationError.lift) {
-    uniffi_foobar_fn_method_safedivision_perform(self.uniffiClonePointer(),
+open func perform(lhs: Int64, rhs: Int64)throws  -> Int64  {
+    return try  FfiConverterInt64.lift(try rustCallWithError(FfiConverterTypeComputationError_lift) {
+    uniffi_foobar_fn_method_safedivision_perform(
+            self.uniffiCloneHandle(),
         FfiConverterInt64.lower(lhs),
         FfiConverterInt64.lower(rhs),$0
     )
@@ -1047,61 +1064,56 @@ open func perform(lhs: Int64, rhs: Int64)throws  -> Int64 {
 }
     
 
+    
 }
+
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
 public struct FfiConverterTypeSafeDivision: FfiConverter {
-
-    typealias FfiType = UnsafeMutableRawPointer
+    typealias FfiType = UInt64
     typealias SwiftType = SafeDivision
 
-    public static func lift(_ pointer: UnsafeMutableRawPointer) throws -> SafeDivision {
-        return SafeDivision(unsafeFromRawPointer: pointer)
+    public static func lift(_ handle: UInt64) throws -> SafeDivision {
+        return SafeDivision(unsafeFromHandle: handle)
     }
 
-    public static func lower(_ value: SafeDivision) -> UnsafeMutableRawPointer {
-        return value.uniffiClonePointer()
+    public static func lower(_ value: SafeDivision) -> UInt64 {
+        return value.uniffiCloneHandle()
     }
 
     public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SafeDivision {
-        let v: UInt64 = try readInt(&buf)
-        // The Rust code won't compile if a pointer won't fit in a UInt64.
-        // We have to go via `UInt` because that's the thing that's the size of a pointer.
-        let ptr = UnsafeMutableRawPointer(bitPattern: UInt(truncatingIfNeeded: v))
-        if (ptr == nil) {
-            throw UniffiInternalError.unexpectedNullPointer
-        }
-        return try lift(ptr!)
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
     }
 
     public static func write(_ value: SafeDivision, into buf: inout [UInt8]) {
-        // This fiddling is because `Int` is the thing that's the same size as a pointer.
-        // The Rust code won't compile if a pointer won't fit in a `UInt64`.
-        writeInt(&buf, UInt64(bitPattern: Int64(Int(bitPattern: lower(value)))))
+        writeInt(&buf, lower(value))
     }
 }
-
+extension SafeDivision: BinaryOperator {}
 
 
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-public func FfiConverterTypeSafeDivision_lift(_ pointer: UnsafeMutableRawPointer) throws -> SafeDivision {
-    return try FfiConverterTypeSafeDivision.lift(pointer)
+public func FfiConverterTypeSafeDivision_lift(_ handle: UInt64) throws -> SafeDivision {
+    return try FfiConverterTypeSafeDivision.lift(handle)
 }
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-public func FfiConverterTypeSafeDivision_lower(_ value: SafeDivision) -> UnsafeMutableRawPointer {
+public func FfiConverterTypeSafeDivision_lower(_ value: SafeDivision) -> UInt64 {
     return FfiConverterTypeSafeDivision.lower(value)
 }
 
 
-public struct ComputationResult {
+
+
+public struct ComputationResult: Equatable, Hashable {
     public var value: Int64
     public var computationTime: TimeInterval
 
@@ -1111,27 +1123,13 @@ public struct ComputationResult {
         self.value = value
         self.computationTime = computationTime
     }
+
+    
 }
 
-
-
-extension ComputationResult: Equatable, Hashable {
-    public static func ==(lhs: ComputationResult, rhs: ComputationResult) -> Bool {
-        if lhs.value != rhs.value {
-            return false
-        }
-        if lhs.computationTime != rhs.computationTime {
-            return false
-        }
-        return true
-    }
-
-    public func hash(into hasher: inout Hasher) {
-        hasher.combine(value)
-        hasher.combine(computationTime)
-    }
-}
-
+#if compiler(>=6)
+extension ComputationResult: Sendable {}
+#endif
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
@@ -1167,15 +1165,26 @@ public func FfiConverterTypeComputationResult_lower(_ value: ComputationResult) 
 }
 
 
-public enum ComputationError {
+public enum ComputationError: Swift.Error, Equatable, Hashable, Foundation.LocalizedError {
 
     
     
     case DivisionByZero
     case Overflow
     case IllegalComputationWithInitState
+
+    
+
+    
+    public var errorDescription: String? {
+        String(reflecting: self)
+    }
+    
 }
 
+#if compiler(>=6)
+extension ComputationError: Sendable {}
+#endif
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
@@ -1221,18 +1230,24 @@ public struct FfiConverterTypeComputationError: FfiConverterRustBuffer {
 }
 
 
-extension ComputationError: Equatable, Hashable {}
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeComputationError_lift(_ buf: RustBuffer) throws -> ComputationError {
+    return try FfiConverterTypeComputationError.lift(buf)
+}
 
-extension ComputationError: Foundation.LocalizedError {
-    public var errorDescription: String? {
-        String(reflecting: self)
-    }
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeComputationError_lower(_ value: ComputationError) -> RustBuffer {
+    return FfiConverterTypeComputationError.lower(value)
 }
 
 // Note that we don't yet support `indirect` for enums.
 // See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
 
-public enum ComputationState {
+public enum ComputationState: Equatable, Hashable {
     
     /**
      * Initial state with no value computed
@@ -1240,8 +1255,14 @@ public enum ComputationState {
     case `init`
     case computed(result: ComputationResult
     )
+
+
+
 }
 
+#if compiler(>=6)
+extension ComputationState: Sendable {}
+#endif
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
@@ -1294,11 +1315,6 @@ public func FfiConverterTypeComputationState_lower(_ value: ComputationState) ->
 }
 
 
-
-extension ComputationState: Equatable, Hashable {}
-
-
-
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
@@ -1322,14 +1338,14 @@ fileprivate struct FfiConverterOptionTypeComputationResult: FfiConverterRustBuff
         }
     }
 }
-public func safeAdditionOperator() -> BinaryOperator {
-    return try!  FfiConverterTypeBinaryOperator.lift(try! rustCall() {
+public func safeAdditionOperator() -> BinaryOperator  {
+    return try!  FfiConverterTypeBinaryOperator_lift(try! rustCall() {
     uniffi_foobar_fn_func_safe_addition_operator($0
     )
 })
 }
-public func safeDivisionOperator() -> BinaryOperator {
-    return try!  FfiConverterTypeBinaryOperator.lift(try! rustCall() {
+public func safeDivisionOperator() -> BinaryOperator  {
+    return try!  FfiConverterTypeBinaryOperator_lift(try! rustCall() {
     uniffi_foobar_fn_func_safe_division_operator($0
     )
 })
@@ -1342,9 +1358,9 @@ private enum InitializationResult {
 }
 // Use a global variable to perform the versioning checks. Swift ensures that
 // the code inside is only computed once.
-private var initializationResult: InitializationResult = {
+private let initializationResult: InitializationResult = {
     // Get the bindings contract version from our ComponentInterface
-    let bindings_contract_version = 26
+    let bindings_contract_version = 30
     // Get the scaffolding contract version by calling the into the dylib
     let scaffolding_contract_version = ffi_foobar_uniffi_contract_version()
     if bindings_contract_version != scaffolding_contract_version {
@@ -1388,7 +1404,9 @@ private var initializationResult: InitializationResult = {
     return InitializationResult.ok
 }()
 
-private func uniffiEnsureInitialized() {
+// Make the ensure init function public so that other modules which have external type references to
+// our types can call it.
+public func uniffiEnsureFoobarInitialized() {
     switch initializationResult {
     case .ok:
         break
