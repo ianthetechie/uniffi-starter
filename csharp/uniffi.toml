@@ -1,0 +1,3 @@
+[bindings.csharp]
+namespace = "Uniffi.Calculator"
+access_modifier = "public"
